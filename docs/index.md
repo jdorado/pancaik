@@ -156,4 +156,4 @@ if __name__ == "__main__":
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](https://github.com/jdorado/pancaik/blob/main/LICENSE)
