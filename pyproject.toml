@@ -8,7 +8,7 @@ packages = [{include = "pancaik", from = "src"}]
 license = "MIT"
 homepage = "https://github.com/jdorado/pancaik"
 repository = "https://github.com/jdorado/pancaik"
-documentation = "https://pancaik.readthedocs.io/"
+documentation = "https://jdorado.github.io/pancaik/"
 keywords = ["agents", "automation", "chatbot", "scheduling", "tasks"]
 classifiers = [
     "Development Status :: 4 - Beta",
