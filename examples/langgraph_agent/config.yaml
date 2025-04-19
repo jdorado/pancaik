@@ -1,0 +1,9 @@
+tasks:
+  create_tweet:
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 1
+        max_minutes: 1
+    pipeline:
+      - run_tweet_cycle

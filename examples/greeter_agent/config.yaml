@@ -1,0 +1,24 @@
+tasks:
+  greet_and_tweet:
+    objective: "Greet a person by name"
+    pipeline:
+      - greet
+      - publish_tweet
+  greet_share_time:
+    objective: "Greet a person by name and share the current time"
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 5
+        max_minutes: 30
+    retry_policy:
+      minutes: 15  # Retry after 15 minutes on failure
+    pipeline:
+      - greet
+      - say_current_hour
+  welcome_sequence:
+    objective: "Run a full welcome sequence for new users"
+    retry_policy: false  # No retries for this task
+    pipeline:
+      - greet_and_tweet
+      - say_current_hour

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: pancaik-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - pancaik
+    restart: always
+    environment:
+      - MONGO_INITDB_DATABASE=pancaik
+
+volumes:
+  mongo-data:
+    name: pancaik-mongo-data
+
+networks:
+  pancaik:
+    name: pancaik 

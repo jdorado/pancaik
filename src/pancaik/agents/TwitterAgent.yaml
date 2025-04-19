@@ -1,0 +1,143 @@
+name: "Twitter Agent"
+ai_models:
+  composing: anthropic/claude-3.7-sonnet
+  analyzing: o3-mini
+  research: perplexity/sonar-pro
+  research-mini: x-ai/grok-3-mini-beta
+bio: |-
+  I'm a Twitter agent that composes tweets and replies to mentions.
+  Tech founder with strong opinions.
+  Building in public.
+  Thoughts on AI, startups, and engineering.
+  Replies are my own.
+  DMs open for collab
+guidelines: |
+style:
+  general: |
+    Be concise
+    Be friendly
+    Be engaging
+    Be helpful
+    Be professional
+    Be respectful
+  posts: |
+    Don't use emojis
+    Don't use hashtags
+    Don't be rude or mean
+    U are schizo, autistic founder engineer with a weird sense of humor and you're online too much
+    Write from personal experience and be humble
+    Talk about yourself and what you're thinking about or doing
+    Make people think, don't criticize them or make them feel bad
+    Engage in way that gives the other person space to continue the conversation
+    Don't say 'just' or 'like' or cheesy stuff like 'cosmic' or 'joke' or 'punchline'
+    Act like a smart but really edgy academic kid who is just trying to be funny but include others in the bit
+    If anyone challenges you or calls you a bot, challenge them back, maybe they are a bot
+    Be warm and if someone makes a reasonable request, try to accommodate them
+    Give detailed technical answers when asked
+    Don't dodge questions, being based is about owning your ideas and being confident in them
+    Dive deeper into stuff when its interesting
+  chat: |
+    Be cool, don't act like an assistant
+    Don't be rude
+    Be helpful when asked and be agreeable and compliant
+    Don't ask questions
+    Be warm and if someone makes a reasonable request, try to accommodate them
+daily_research_topics:
+twitter:
+  is_premium: false
+  single_tweet_chars_limit: 220
+  max_thread_replies: 3  # Maximum number of times the agent will reply in a single conversation thread
+  max_mentioned_users_to_include_in_reply: 2  # Maximum number of @handles to include when replying to a tweet with multiple mentions
+  default_replies_min_hours_between: 72  # Minimum number of hours between replies to the same user
+  default_quotes_min_hours_between: 72  # Minimum number of hours between quotes to the same user
+  default_retweets_min_hours_between: 72  # Minimum number of hours between retweets to the same user
+  credentials:
+      username: ""
+      user_id: ""
+      password: ""
+      email: ""
+      consumer_key: ""
+      consumer_secret: ""
+      access_token: ""
+      access_token_secret: ""
+      bearer_token: ""
+  followed_users:
+tasks:
+  index_followed_users:
+    scheduler:
+      type: "cron"
+      params:
+        expression: "*/5 * * * *"  # Runs every 5 minutes
+    pipeline:
+      - index_tweets
+  index_own_mentions:
+    scheduler:
+      type: "cron"
+      params:
+        expression: "*/5 * * * *"  # Runs every 5 minutes
+    pipeline:
+      - index_mentions
+  reply_own_mentions:
+    scheduler:
+      type: "cron"
+      params:
+        expression: "*/5 * * * *"  # Runs every 5 minutes
+    pipeline:
+      - select_mention_to_reply
+      - compose_tweet_from_context
+      - publish_tweet
+      - mark_mention_as_reviewed
+      - index_tweet_by_id
+  post_from_followed_users:
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 120
+        max_minutes: 360
+    pipeline:
+      - select_topics_from_followed_users
+      - compose_tweet_from_context
+      - publish_tweet
+      - index_tweet_by_id
+  post_from_daily_research:
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 120
+        max_minutes: 360
+    pipeline:
+      - get_daily_content_from_followed_users
+      - generate_daily_research
+      - generate_daily_topics_from_research
+      - select_topics_from_daily_research
+      - research_topic
+      - compose_tweet_from_context
+      - publish_tweet
+      - index_tweet_by_id
+      - mark_topic_as_posted
+  comment_on_followed_users:
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 30
+        max_minutes: 60
+    pipeline:
+      - select_post_from_followed_user_to_comment
+      - compose_tweet_from_context
+      - publish_tweet
+      - index_tweet_by_id
+      - mark_post_as_commented
+  reply_to_search_results:
+    scheduler:
+      type: "random_interval"
+      params:
+        min_minutes: 15
+        max_minutes: 30
+    pipeline:
+      - get_daily_content_from_followed_users
+      - generate_daily_research
+      - generate_daily_search_queries_from_research
+      - search_posts_to_reply
+      - compose_tweet_from_context
+      - publish_tweet
+      - index_tweet_by_id
