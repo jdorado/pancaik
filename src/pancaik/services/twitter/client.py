@@ -54,6 +54,16 @@ async def process_images(twitter: Dict, urls: Union[str, List[str]]) -> List[int
     return media_ids
 
 
+def has_valid_api_credentials(twitter: Dict) -> bool:
+    """Check if Twitter API credentials are present and non-empty."""
+    required_keys = ["access_token", "access_token_secret"]
+    for key in required_keys:
+        if key not in twitter or not twitter[key]:
+            assert key in twitter, f"Missing required credential: {key}"
+            return False
+    return True
+
+
 async def create_tweet(
     twitter: Dict,
     text: str,
@@ -82,7 +92,7 @@ async def create_tweet(
                 return resp
 
         # Check if API credentials are available
-        has_api = all(key in twitter for key in ["access_token", "access_token_secret"])
+        has_api = has_valid_api_credentials(twitter)
         if not has_api:
             return None
 
@@ -280,7 +290,7 @@ async def get_latest_tweets(twitter: Dict, username: str, user_id: str, max_resu
         return tweets
 
     # Check if API credentials are present
-    has_api = "access_token" in twitter and "access_token_secret" in twitter
+    has_api = has_valid_api_credentials(twitter)
     if not has_api:
         return None
 
@@ -329,7 +339,7 @@ async def search(query: str, twitter: Dict) -> Optional[List[Dict]]:
         logger.warning(f"Direct search error for user '{username}': {e}")
 
     # Check if API credentials are present
-    has_api = "access_token" in twitter and "access_token_secret" in twitter
+    has_api = has_valid_api_credentials(twitter)
     if not has_api:
         return None
 
@@ -383,7 +393,7 @@ async def get_tweet(tweet_id: str, twitter: Dict) -> Optional[Dict]:
         logger.warning(f"Direct get_tweet error for user '{username}': {e}")
 
     # Check if API credentials are present
-    has_api = "access_token" in twitter and "access_token_secret" in twitter
+    has_api = has_valid_api_credentials(twitter)
     if not has_api:
         return None
 
