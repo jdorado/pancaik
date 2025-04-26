@@ -1,5 +1,7 @@
 # Pancaik Agents
 
+[**📚 Documentation**](https://jdorado.github.io/pancaik/)
+
 A framework for building intelligent agents that perform scheduled tasks and provide chat interfaces.
 
 ## Features
