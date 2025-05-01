@@ -281,20 +281,21 @@ async def index_mentions(data_store: Dict[str, Any]):
 
 
 @tool
-async def index_tweet_by_id(tweet_id: str, data_store: Dict[str, Any]):
+async def index_tweet_by_id(tweet_id: str = None, data_store: Dict[str, Any] = None):
     """
     Indexes a single tweet by its ID.
 
     Args:
-        tweet_id: The ID of the tweet to index
-        data_store: Agent's data store containing configuration and state
+        tweet_id: The ID of the tweet to index (optional)
+        data_store: Agent's data store containing configuration and state (optional)
 
     Returns:
         Dictionary with indexing operation results
     """
-    # Return immediately if tweet_id is 0
-    if tweet_id == 0:
-        return {"status": "skipped", "tweet_id": tweet_id, "indexed_count": 0, "message": "tweet_id is 0, skipping indexing"}
+    # Return immediately if tweet_id is 0 or not provided
+    if not tweet_id or tweet_id == 0:
+        logger.warning(f"Tweet ID not provided or is 0, skipping indexing")
+        return {"status": "skipped", "tweet_id": tweet_id, "indexed_count": 0, "message": "Tweet ID not provided or is 0, skipping indexing"}
     # Preconditions
     assert tweet_id, "Tweet ID must be provided"
     assert data_store, "Data store must be provided"

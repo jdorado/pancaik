@@ -207,7 +207,7 @@ async def select_mention_to_reply(data_store: Dict[str, Any]):
 
     # If we've gone through all mentions and none are suitable
     logger.info(f"No {'unreplied' if not mentions else 'suitable'} mentions found")
-    return {"status": status, "username": username, "values": {}}
+    return {"status": status, "username": username, "values": {}, "should_exit": True}
 
 
 async def determine_eligible_users(user_handles: list, username: str, followed_users: dict, time_limits: dict, collection):

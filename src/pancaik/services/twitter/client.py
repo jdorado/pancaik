@@ -59,7 +59,6 @@ def has_valid_api_credentials(twitter: Dict) -> bool:
     required_keys = ["access_token", "access_token_secret"]
     for key in required_keys:
         if key not in twitter or not twitter[key]:
-            assert key in twitter, f"Missing required credential: {key}"
             return False
     return True
 

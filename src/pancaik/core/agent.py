@@ -586,9 +586,10 @@ class Agent:
         else:
             self.data_store[_name] = result
 
-        # Postcondition: Data store should contain the result if it was non-dict or had values
-        assert (
-            not isinstance(result, dict) or "values" not in result or any(k in self.data_store for k in result["values"].keys())
-        ), "Data store should contain values if provided"
+        # Postcondition: Data store should contain the result if it was non-dict or had values, unless should_exit is True
+        if not (isinstance(result, dict) and result.get("should_exit", False)):
+            assert (
+                not isinstance(result, dict) or "values" not in result or any(k in self.data_store for k in result["values"].keys())
+            ), "Data store should contain values if provided"
 
         return result

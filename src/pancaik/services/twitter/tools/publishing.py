@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional
 
 from ....tools.base import tool
 from .. import client
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -56,7 +59,8 @@ async def publish_tweet(tweet: str, data_store: Dict[str, Any], reply_to_id: Opt
             "values": {"tweet_id": tweet_id, "tweet_url": url, "tweet_text": tweet},
         }
     else:
-        return {"status": "error", "message": "Failed to publish tweet", "text": tweet}
+        logger.error("Failed to publish tweet")
+        return {"status": "error", "message": "Failed to publish tweet", "text": tweet, "should_exit": True}
 
 
 @tool

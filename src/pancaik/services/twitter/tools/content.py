@@ -180,8 +180,8 @@ async def get_daily_content_from_followed_users(data_store: Dict[str, Any]):
 
     # Validate we have followed users
     if not followed_users:
-        logger.error("No followed users available in config")
-        return {"status": "error", "message": "No followed users available"}
+        logger.warning("No followed users available in config")
+        return {"status": "warning", "message": "No followed users available"}
 
     # Get all user handles
     user_handles = list(followed_users.keys())

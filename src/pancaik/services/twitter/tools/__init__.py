@@ -12,4 +12,4 @@ This package organizes Twitter-related tools into logical modules:
 # Import all tools to register them with the _GLOBAL_TOOLS dictionary
 from . import content, indexing, interaction, publishing, replies, search
 
-__all__ = ["publishing", "indexing", "search", "interaction", "content"]
+__all__ = ["publishing", "indexing", "search", "interaction", "content", "replies"]
