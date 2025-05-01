@@ -5,9 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.2] - 2024-04-26
+## [0.1.2] - 2024-05-01
 ### Changed
-- Released new version with latest dependencies and improvements
+- Updated documentation URL to GitHub Pages (https://jdorado.github.io/pancaik/)
+- Improved error handling in Twitter tools with better logging and exit conditions
+- Added 'replies' module to Twitter tools exports
+
+### Fixed
+- Enhanced data store assertion handling for cases with should_exit flag
+- Improved Twitter API credential validation logic
+- Modified content retrieval to use warning instead of error for no followed users
+- Enhanced tweet indexing with better handling of empty or zero tweet IDs
+- Improved error handling in tweet publishing with proper logging
 
 ## [0.1.1] - 2024-04-26
 ### Fixed
