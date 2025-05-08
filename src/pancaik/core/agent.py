@@ -189,9 +189,11 @@ class Agent:
         if tools_pipeline:
             assert isinstance(tools_pipeline, list), "Pipeline from config.tools must be a list"
             for step in tools_pipeline:
+                logger.info(f"Agent {self.id}: Starting execution of step '{step['id']}'")
                 result = await self.run_tool(step, **kwargs)
+                logger.info(f"Agent {self.id}: Completed execution of step '{step['id']}'")
                 if isinstance(result, dict) and result.get("should_exit", False):
-                    logger.info(f"Exiting pipeline early due to should_exit flag from step '{step['id']}'")
+                    logger.info(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
                     break
 
         # 2. Process outputs
@@ -199,7 +201,9 @@ class Agent:
         if outputs_pipeline:
             assert isinstance(outputs_pipeline, list), "Pipeline from config.outputs must be a list"
             for output in outputs_pipeline:
+                logger.info(f"Agent {self.id}: Starting execution of output step '{output['id']}'")
                 await self.run_tool(output, **kwargs)
+                logger.info(f"Agent {self.id}: Completed execution of output step '{output['id']}'")
 
         return self.data_store
 
@@ -227,9 +231,11 @@ class Agent:
         if triggers_pipeline:
             assert isinstance(triggers_pipeline, list), "Pipeline from config.triggers must be a list"
             for trigger in triggers_pipeline:
+                logger.info(f"Agent {self.id}: Starting execution of trigger '{trigger['id']}'")
                 result = await self.run_tool(trigger, **kwargs)
+                logger.info(f"Agent {self.id}: Completed execution of trigger '{trigger['id']}'")
                 if isinstance(result, dict) and result.get("should_exit", False):
-                    logger.info(f"Exiting triggers pipeline early due to should_exit flag from trigger '{trigger['id']}'")
+                    logger.info(f"Agent {self.id}: Exiting triggers pipeline early due to should_exit flag from trigger '{trigger['id']}'")
                     break
 
         return self.data_store

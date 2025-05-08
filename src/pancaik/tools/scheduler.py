@@ -89,7 +89,9 @@ async def scheduler(
                 "next_run": None,
                 "status": None,
                 "is_active": False,
-                "updated_at": now
+                "updated_at": now,
+                "retry_count": 0,
+                "error": None
             }
             success = await AgentHandler.update_agent(agent_id, update_data)
             return {
@@ -175,7 +177,9 @@ async def scheduler(
             "last_run": last_run_dt,
             "status": "scheduled",
             "is_active": True,
-            "updated_at": now
+            "updated_at": now,
+            "retry_count": 0,
+            "error": None
         })
     else:
         success = True  # For one-time tasks that were deactivated

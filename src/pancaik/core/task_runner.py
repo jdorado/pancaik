@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict
 
 from .agent import Agent
@@ -65,10 +65,7 @@ async def execute_task(agent: Agent) -> None:
         # Run the agent
         result = await agent.run()
 
-        # Mark agent as complete
-        await AgentHandler.update_agent_status(agent_id, "completed")
-
-        # Let the agent handle its own scheduling for next run
+        # Mark agent as complete and schedule next run
         await agent.schedule_next_run(last_run=datetime.now(timezone.utc))
 
         return result
@@ -77,23 +74,24 @@ async def execute_task(agent: Agent) -> None:
         logger.error(error_message)
 
         retry_count = agent.retry_count + 1
-
-        # Mark agent as failed with retry information
-        await AgentHandler.update_agent_status(agent_id, "failed", {"error": str(e), "retry_count": retry_count})
-
-        # Get retry policy from the agent
         retry_policy = agent.retry_policy
+        current_time = datetime.now(timezone.utc)
 
-        # Default retry policy: retry in 10 minutes
+        # Default retry policy values - always retry unless explicitly disabled
         retry_minutes = 10
-        max_retries = 5  # Maximum number of retry attempts
+        max_retries = 5
 
-        # If retry_policy is explicitly set to None or False, don't retry
+        # Only skip retries if retry_policy is explicitly False
         if retry_policy is False:
             logger.info(f"Agent {agent_id} has retry_policy=False, not scheduling retry")
+            await AgentHandler.update_agent_status(
+                agent_id, 
+                "failed", 
+                {"error": str(e), "retry_count": retry_count, 'next_run': None, 'is_active': False}
+            )
             return None
 
-        # If retry_policy is a dict, check for minutes and max_retries parameters
+        # If retry_policy is a dict, check for custom minutes and max_retries parameters
         if isinstance(retry_policy, dict):
             retry_minutes = retry_policy.get("minutes", retry_minutes)
             max_retries = retry_policy.get("max_retries", max_retries)
@@ -105,8 +103,21 @@ async def execute_task(agent: Agent) -> None:
         # Check if we've reached the maximum number of retries
         if retry_count >= max_retries:
             logger.info(f"Agent {agent_id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
+            await AgentHandler.update_agent_status(
+                agent_id, 
+                "failed", 
+                {"error": str(e), "retry_count": retry_count, 'next_run': None, 'is_active': False}
+            )
             return None
 
-        # Schedule next run based on retry policy
-        await agent.schedule_next_run(minutes=retry_minutes, retry_count=retry_count)
+        # Schedule next run and update status with retry information
+        await AgentHandler.update_agent_status(
+            agent_id, 
+            "scheduled", 
+            {
+                "error": str(e), 
+                "retry_count": retry_count,
+                "next_run": current_time + timedelta(minutes=retry_minutes)
+            }
+        )
         logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")

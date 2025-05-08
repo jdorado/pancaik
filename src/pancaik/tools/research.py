@@ -30,44 +30,35 @@ async def research_perplexity(research_prompt: str, research_model: str):
     assert research_prompt, "Research prompt must be provided"
     assert research_model, "Research model must be provided"
     
-    try:
-        today_date = datetime.utcnow().strftime("%Y-%m-%d")
-        prompt = f"""
-        <date>
-        {today_date}
-        </date>
+    today_date = datetime.utcnow().strftime("%Y-%m-%d")
+    prompt = f"""
+    <date>
+    {today_date}
+    </date>
 
-        <task>
-        Conduct detailed and comprehensive research on the following research prompt.
-        </task>
+    <task>
+    Conduct detailed and comprehensive research on the following research prompt.
+    </task>
 
-        <research_prompt>
-        {research_prompt}
-        </research_prompt>
-        """
+    <research_prompt>
+    {research_prompt}
+    </research_prompt>
+    """
 
-        # TODO research_result = await get_completion(prompt=prompt, model_id=research_model)
-        research_result = "test"
-        logger.info(f"Successfully completed Perplexity research for prompt")
-        
-        return {
-            "status": "success", 
-            "message": "Perplexity research completed",
-            "values": {
-                "context": research_result,
-                "output": {
-                    "perplexity_research": research_result
-                }
+    # TODO research_result = await get_completion(prompt=prompt, model_id=research_model)
+    research_result = "test"
+    logger.info(f"Successfully completed Perplexity research for prompt")
+    
+    return {
+        "status": "success", 
+        "message": "Perplexity research completed",
+        "values": {
+            "context": research_result,
+            "output": {
+                "perplexity_research": research_result
             }
         }
-        
-    except Exception as e:
-        logger.error(f"Error during Perplexity research: {e}")
-        return {
-            "status": "error",
-            "message": f"Error during Perplexity research: {e}",
-            "values": {}
-        }
+    }
 
 
 @tool
