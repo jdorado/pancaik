@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, FastAPI
 from greeter_agent import GreetingAgent
@@ -32,7 +32,7 @@ async def lifespan(app: FastAPI):
     greeter = GreetingAgent()
 
     # Schedule tasks with different delays
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     await greeter.schedule_task(task_name="greet_and_tweet", next_run=now, params={"name": "Alice"})
     await greeter.schedule_task(task_name="greet_share_time", next_run=now + timedelta(seconds=2), params={"name": "Bob"})
     await greeter.schedule_task(task_name="welcome_sequence", next_run=now + timedelta(seconds=4), params={"name": "Charlie"})
@@ -57,7 +57,7 @@ async def hello_world():
 @router.get("/greet/{name}")
 async def greet_person(name: str):
     greeter = GreetingAgent()
-    task_id = await greeter.schedule_task(task_name="greet_share_time", next_run=datetime.now(), params={"name": name})
+    task_id = await greeter.schedule_task(task_name="greet_share_time", next_run=datetime.now(timezone.utc), params={"name": name})
     return {"task_id": task_id, "message": f"Scheduled greeting for {name}"}
 
 

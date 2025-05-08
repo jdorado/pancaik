@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 
 from pancaik.core.agent import Agent
 
@@ -13,7 +14,7 @@ class GreetingAgent(Agent):
 
     async def say_current_hour(self):
         """Get and say the current time"""
-        current_time = datetime.datetime.now()
+        current_time = datetime.now(timezone.utc)
         formatted_time = current_time.strftime("%H:%M:%S")
         time_message = f"The current time is {formatted_time}."
         print(f"🕒 {time_message}")

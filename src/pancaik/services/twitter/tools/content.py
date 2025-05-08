@@ -6,7 +6,7 @@ This module provides tools for generating and verifying Twitter content.
 
 import random
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from ....core.config import logger
@@ -73,7 +73,7 @@ async def select_topics_from_followed_users(data_store: Dict[str, Any]):
         # Create prompt for topic analysis
         prompt = f"""
         <profile>
-        TODAY: {datetime.now().strftime("%Y-%m-%d")}
+        TODAY: {datetime.now(timezone.utc).strftime("%Y-%m-%d")}
         ABOUT: {config.get("bio", "")}
         </profile>
 
@@ -263,7 +263,7 @@ async def compose_tweet_from_context(data_store: Dict[str, Any]):
     prompt = f"""
     <profile>
     USERNAME: {username}
-    DATE: {datetime.now().strftime("%Y-%m-%d")}
+    DATE: {datetime.now(timezone.utc).strftime("%Y-%m-%d")}
     BIO: {config.get("bio", "")}
     </profile>
     

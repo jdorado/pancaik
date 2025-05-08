@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pancaik"
-version = "0.1.2"
+version = "0.2.0"
 description = "A framework for building intelligent agents that perform scheduled tasks and provide chat interfaces"
 authors = ["jc_stack <jc@ezenciel.com>"]
 readme = "README.md"

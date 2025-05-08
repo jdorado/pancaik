@@ -82,11 +82,12 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
     set_config("twitter_max_concurrent_indexing_users", twitter_max_concurrent_indexing_users)
 
     # Start continuous task runner if configured
+    task = None
     if config.get("run_continuous", False):
         task_limit = config.get("task_limit", 100)
         parallel = config.get("parallel", False)
         sleep_interval = config.get("sleep_interval", 60)
-        asyncio.create_task(run_continuous_tasks(parallel=parallel, limit=task_limit, sleep_interval=sleep_interval))
+        task = asyncio.create_task(run_continuous_tasks(parallel=parallel, limit=task_limit, sleep_interval=sleep_interval))
         logger.info(f"Task runner started (limit={task_limit}, parallel={parallel}, sleep_interval={sleep_interval})")
 
     # Add tasks endpoint if requested and app is provided
@@ -104,3 +105,5 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
             return {"status": "success", "message": "Tasks executed"}
 
         app.include_router(router)
+
+    return task
