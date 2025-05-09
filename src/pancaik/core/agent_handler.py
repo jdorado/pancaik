@@ -5,6 +5,7 @@ This provides a clean interface for working with agents across the system.
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
 from bson import ObjectId
 
 from .config import get_config, logger
@@ -44,21 +45,14 @@ class AgentHandler:
         assert owner_id is None or isinstance(owner_id, str), "Owner id must be a string or None"
 
         collection = await cls.get_collection()
-        
+
         # Add creation timestamp and ensure UTC
         now = datetime.now(timezone.utc)
-        agent_data.update({
-            "created_at": now,
-            "updated_at": now,
-            "owner_id": owner_id  # Set owner_id (None for root agents)
-        })
+        agent_data.update({"created_at": now, "updated_at": now, "owner_id": owner_id})  # Set owner_id (None for root agents)
 
         try:
             # Insert the new agent
-            result = await collection.insert_one({
-                "_id": ObjectId(agent_id),
-                **agent_data
-            })
+            result = await collection.insert_one({"_id": ObjectId(agent_id), **agent_data})
             return bool(result.inserted_id)
         except Exception as e:
             logger.error(f"Failed to insert agent {agent_id}: {str(e)}")
@@ -76,14 +70,14 @@ class AgentHandler:
             List of descendant agent IDs
         """
         collection = await cls.get_collection()
-        
+
         # Find all agents that have this agent as an owner
         descendants = []
         async for agent in collection.find({"owner_id": agent_id}):
             descendants.append(str(agent["_id"]))
             # Recursively get descendants of this child
             descendants.extend(await cls.get_agent_descendants(str(agent["_id"])))
-            
+
         return descendants
 
     @classmethod
@@ -98,7 +92,7 @@ class AgentHandler:
             bool: True if deletion was successful
         """
         collection = await cls.get_collection()
-        
+
         # Delete the agent
         result = await collection.delete_one({"_id": ObjectId(agent_id)})
         return result.deleted_count > 0
@@ -118,7 +112,7 @@ class AgentHandler:
         # First get all descendants
         descendants = await cls.get_agent_descendants(agent_id)
         affected = []
-        
+
         # Delete all descendants
         for desc_id in descendants:
             if await cls.delete_agent(desc_id):
@@ -126,12 +120,12 @@ class AgentHandler:
                 logger.info(f"Deleted descendant agent {desc_id}")
             else:
                 logger.warning(f"Failed to delete descendant agent {desc_id}")
-        
+
         # Deactivate the root agent (but don't delete it)
         await cls.update_agent_status(agent_id, "completed", {"is_active": False})
         affected.append(agent_id)
         logger.info(f"Deactivated root agent {agent_id}")
-        
+
         return affected
 
     @classmethod
@@ -161,10 +155,10 @@ class AgentHandler:
     @staticmethod
     def _ensure_utc_datetime(data: Any) -> Any:
         """Recursively ensure all datetime values in the data structure are UTC-aware.
-        
+
         Args:
             data: Any data structure that might contain datetime objects
-            
+
         Returns:
             The data structure with all datetime objects converted to UTC-aware
         """
@@ -197,18 +191,14 @@ class AgentHandler:
 
         now = datetime.now(timezone.utc)
         collection = await cls.get_collection()
-        query = {
-            "next_run": {"$lte": now},
-            "status": "scheduled",
-            "is_active": True
-        }
+        query = {"next_run": {"$lte": now}, "status": "scheduled", "is_active": True}
 
         cursor = collection.find(query)
         cursor.sort("next_run", 1)
         cursor.limit(limit)
 
         agents = await cursor.to_list(length=limit)
-        
+
         # Ensure all datetime fields are UTC-aware
         agents = cls._ensure_utc_datetime(agents)
 
@@ -238,24 +228,19 @@ class AgentHandler:
         assert update_data, "Update data cannot be empty"
 
         collection = await cls.get_collection()
-        
+
         # Add updated_at timestamp
         now = datetime.now(timezone.utc)
         update_data["updated_at"] = now
-        
+
         # If this is a new document, also set created_at
         result = await collection.update_one(
-            {"_id": ObjectId(agent_id)},
-            {
-                "$set": update_data,
-                "$setOnInsert": {"created_at": now}
-            },
-            upsert=True
+            {"_id": ObjectId(agent_id)}, {"$set": update_data, "$setOnInsert": {"created_at": now}}, upsert=True
         )
 
         # Postcondition
         assert result.matched_count in [0, 1], "Update should match at most one document"
-        
+
         return result.modified_count > 0 or result.upserted_id is not None
 
     @classmethod
@@ -298,18 +283,15 @@ class AgentHandler:
         # Precondition
         assert isinstance(owner_id, str), "Owner id must be a string"
         assert isinstance(step_requirements, list), "Step requirements must be a list"
-        assert all(isinstance(t, tuple) and len(t) == 2 for t in step_requirements), "Each requirement must be a (step_id, required_agent) tuple"
+        assert all(
+            isinstance(t, tuple) and len(t) == 2 for t in step_requirements
+        ), "Each requirement must be a (step_id, required_agent) tuple"
         assert len(step_requirements) > 0, "At least one requirement must be provided"
 
         # Create query conditions for each requirement
         conditions = []
         for step_id, required_agent in step_requirements:
-            conditions.append({
-                "owner_id": owner_id,
-                "step_id": step_id,
-                "required_agent": required_agent,
-                "is_active": True
-            })
+            conditions.append({"owner_id": owner_id, "step_id": step_id, "required_agent": required_agent, "is_active": True})
 
         collection = await cls.get_collection()
         cursor = collection.find({"$or": conditions})
@@ -326,14 +308,6 @@ class AgentHandler:
     async def ensure_indexes(cls):
         """Ensure required indexes exist in the database"""
         collection = await cls.get_collection()
-        
+
         # Create compound unique index
-        await collection.create_index(
-            [
-                ("owner_id", 1),
-                ("step_id", 1),
-                ("required_agent", 1)
-            ],
-            unique=True,
-            background=True
-        ) 
+        await collection.create_index([("owner_id", 1), ("step_id", 1), ("required_agent", 1)], unique=True, background=True)

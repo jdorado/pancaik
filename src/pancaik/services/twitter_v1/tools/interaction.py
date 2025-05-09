@@ -4,16 +4,16 @@ Twitter interaction tools for agents.
 This module provides tools for interacting with tweets and mentions.
 """
 
-import re
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from ....core.config import logger
+from ....core.handlers.twitter import TwitterHandler
 from ....tools.base import tool
 from ....utils.ai_router import get_completion
 from ....utils.json_parser import extract_json_content
 from .. import client
-from ....core.handlers.twitter import TwitterHandler
+
 
 async def determine_eligible_users(user_handles: list, username: str, followed_users: dict, time_limits: dict, collection):
     """
@@ -385,6 +385,7 @@ async def select_post_from_followed_user_to_comment(data_store: Dict[str, Any]):
 
     logger.info("None of the considered posts resulted in an interaction (reply/retweet/quote).")
     return {"status": "no_suitable_posts_after_analysis", "values": {}, "should_exit": True}
+
 
 @tool
 async def mark_post_as_commented(

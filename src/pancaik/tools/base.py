@@ -1,9 +1,9 @@
 """
 Base module for tool definitions and registration.
 """
+
 from functools import wraps
 from typing import Callable, Dict, List, Optional
-from ..core.config import logger
 
 _GLOBAL_TOOLS: Dict[str, Callable] = {}
 
@@ -16,6 +16,7 @@ def tool(*args, agents: Optional[List[str]] = None) -> Callable:
         *args: To support both @tool and @tool() syntax
         agents: List of required agent names
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -29,6 +30,7 @@ def tool(*args, agents: Optional[List[str]] = None) -> Callable:
         # Validate agent configurations exist
         if agents:
             from ..core.agent_registry import _AGENT_REGISTRY
+
             for name in agents:
                 assert name in _AGENT_REGISTRY, f"Agent configuration {name} not found in registry"
 

@@ -76,7 +76,7 @@ async def create_tweet(
 
         # Process media if present
         media_ids = await process_images(twitter, images) if images else None
-        
+
         # Send tweet
         resp = await api.send_tweet(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
         if resp and "id" in resp:
@@ -86,7 +86,7 @@ async def create_tweet(
         elif resp and "retweet" in resp:
             logger.info(f"TWEET: {twitter.get('username')} published retweet {resp['retweet']}")
             return resp
-            
+
     except Exception as e:
         if "duplicate" in str(e):
             raise e

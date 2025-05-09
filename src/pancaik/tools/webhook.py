@@ -4,24 +4,20 @@ Custom webhook tools for agents.
 This module provides tools for sending data to custom HTTP endpoints.
 """
 
-import aiohttp
 from typing import Any, Dict, Optional
+
+import aiohttp
+
 from ..core.config import logger
 from .base import tool
 
 
 class WebhookError(Exception):
     """Exception raised for webhook errors."""
-    pass
 
 
 @tool
-async def custom_webhook(
-    webhook_url: str,
-    output: Dict[str, Any],
-    custom_headers: Optional[Dict[str, str]] = None,
-    timeout: int = 30
-):
+async def custom_webhook(webhook_url: str, output: Dict[str, Any], custom_headers: Optional[Dict[str, str]] = None, timeout: int = 30):
     """
     Sends data to a custom HTTP endpoint using POST method.
 
@@ -40,20 +36,12 @@ async def custom_webhook(
     # Preconditions
     assert webhook_url, "Webhook URL must be provided"
     assert output, "Data payload must be provided"
-    
+
     # Set up request headers
-    request_headers = {
-        "Content-Type": "application/json",
-        **(custom_headers or {})
-    }
+    request_headers = {"Content-Type": "application/json", **(custom_headers or {})}
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(
-            url=webhook_url,
-            json=output,
-            headers=request_headers,
-            timeout=timeout
-        ) as response:
+        async with session.post(url=webhook_url, json=output, headers=request_headers, timeout=timeout) as response:
             response_data = await response.json()
             status_code = response.status
 
@@ -63,12 +51,8 @@ async def custom_webhook(
                     "status": "success",
                     "status_code": status_code,
                     "response": response_data,
-                    "values": {
-                        "webhook_status": "success",
-                        "webhook_response": response_data,
-                        "webhook_url": webhook_url
-                    }
+                    "values": {"webhook_status": "success", "webhook_response": response_data, "webhook_url": webhook_url},
                 }
-            
+
             error_msg = f"Webhook request failed with status {status_code}: {response_data}"
-            raise WebhookError(error_msg) 
+            raise WebhookError(error_msg)

@@ -13,6 +13,7 @@ from ....tools.base import tool
 from .. import client
 from ..handlers import TwitterHandler
 
+
 @tool
 async def index_user_tweets(twitter_handle: str, data_store: Dict[str, Any], twitter_user_id: str = None, max_tweets: int = 100):
     """

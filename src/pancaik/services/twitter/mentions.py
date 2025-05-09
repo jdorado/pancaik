@@ -4,19 +4,19 @@ Twitter indexing tools for agents.
 This module provides tools for indexing tweets from users and mentions.
 """
 
-from typing import List, Dict, Optional, Any, Tuple
+import re
+from datetime import datetime
+from typing import Any, Dict, Tuple
 
-from ...core.config import logger, get_config
+from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
 from ...tools.base import tool
+from ...utils.ai_router import get_completion
+from ...utils.json_parser import extract_json_content
+from ...utils.prompt_utils import get_prompt
 from . import client as twitter_client
 from .client import TwitterClient
 from .handlers import TwitterHandler
-import re
-from ...utils.ai_router import get_completion
-from ...utils.json_parser import extract_json_content
-from datetime import datetime
-from ...utils.prompt_utils import get_prompt
 
 
 async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHandler, depth: int = 10) -> Tuple[str, int, int]:
@@ -126,8 +126,16 @@ async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHa
     # Return the conversation text, reply count, and handle count
     return conversation, count_replies, count_handles(post["text"])
 
+
 @tool(agents=["agent_twitter_index_mentions"])
-async def twitter_select_mentions(data_store: Dict[str, Any], twitter_connection: str, target_handle: str, max_thread_replies: int = 3, max_mentioned_users: int = 2, reply_evaluation_rules = None):
+async def twitter_select_mentions(
+    data_store: Dict[str, Any],
+    twitter_connection: str,
+    target_handle: str,
+    max_thread_replies: int = 3,
+    max_mentioned_users: int = 2,
+    reply_evaluation_rules=None,
+):
     """
     Selects an unresponded mention to reply to from the Twitter database.
 
@@ -208,9 +216,9 @@ async def twitter_select_mentions(data_store: Dict[str, Any], twitter_connection
                 "context": data_store.get("context", {}),
                 "guidelines": reply_evaluation_rules,
                 "conversation": conversation,
-                "output_format": output_format
+                "output_format": output_format,
             }
-            
+
             prompt = get_prompt(prompt_data)
             model_id = config.get("ai_models", {}).get("research-mini")
             response = await get_completion(prompt=prompt, model_id=model_id)

@@ -20,45 +20,36 @@ from ..utils.prompt_utils import get_prompt
 async def research_perplexity(research_prompt: str, research_model: str, data_store: Dict[str, Any]):
     """
     Performs research using Perplexity.
-    
+
     Args:
         research_prompt: The research prompt to process
         research_model: The model ID to use for research
         data_store: Agent's data store containing configuration and state
-        
+
     Returns:
         Dictionary containing operation status and research results in values
     """
     assert research_prompt, "Research prompt must be provided"
     assert research_model, "Research model must be provided"
     assert data_store, "Data store must be provided"
-    
+
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
-    
+
     # Format the prompt using XML style with nested context
     prompt_data = {
         "date": today_date,
         "task": "Conduct detailed and comprehensive research on the following research prompt.",
         "context": data_store.get("context", {}),
-        "research_prompt": research_prompt
+        "research_prompt": research_prompt,
     }
     prompt = get_prompt(prompt_data)
-
-    # TODO research_result = await get_completion(prompt=prompt, model_id=research_model)
-    research_result = "Test Research Result"
+    research_result = await get_completion(prompt=prompt, model_id=research_model)
     logger.info(f"Successfully completed Perplexity research for prompt")
-    
+
     return {
-        "status": "success", 
+        "status": "success",
         "message": "Perplexity research completed",
-        "values": {
-            "context": {
-                "research": research_result
-            },
-            "output": {
-                "latest_research": research_result
-            }
-        }
+        "values": {"context": {"research": research_result}, "output": {"latest_research": research_result}},
     }
 
 
@@ -144,7 +135,7 @@ async def generate_daily_research(data_store: Dict[str, Any]):
 
         if needs_update:
             topics_to_generate.append(topic_key)
-            
+
             # Format the prompt using XML style with nested context
             prompt_data = {
                 "date": today_date,
@@ -153,9 +144,9 @@ async def generate_daily_research(data_store: Dict[str, Any]):
                 "output_format": "Detailed text response, focusing on information relevant as of today.",
                 "context": data_store.get("context", {}),
             }
-            
+
             prompt = get_prompt(prompt_data, "research_request")
-            
+
             tasks_to_run[topic_key] = asyncio.create_task(
                 get_completion(prompt=prompt, model_id=research_model_id),
                 name=f"research_{topic_key}",
@@ -263,7 +254,7 @@ async def research_topic(data_store: Dict[str, Any], topic: Optional[Union[str, 
 
     # 3. Construct the prompt using XML style with nested context
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
-    
+
     prompt_data = {
         "date": today_date,
         "task": """Conduct detailed and comprehensive research on the following specific topic, provided below in the topic_details section.
@@ -272,9 +263,9 @@ and provide in-depth analysis suitable for creating informative content (e.g., a
 Focus on accuracy, depth, and relevance as of today. Structure the output clearly.""",
         "topic_details": str(actual_topic),
         "context": data_store.get("context", {}),
-        "outputs": data_store.get("outputs", {})
+        "outputs": data_store.get("outputs", {}),
     }
-    
+
     prompt = dict_to_xml_string(prompt_data, "research_request")
 
     # 4. Call the AI model

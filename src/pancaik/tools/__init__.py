@@ -1,9 +1,8 @@
 """Tools package for pancaik agents"""
 
 from . import research  # Ensure tools in research.py are registered
-from . import topics
 from . import webhook  # Import the new webhook module
-from . import scheduler
+from . import scheduler, topics
 from .base import _GLOBAL_TOOLS, tool
 
 __all__ = ["tool"]

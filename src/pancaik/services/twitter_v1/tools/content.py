@@ -5,7 +5,6 @@ This module provides tools for generating and verifying Twitter content.
 """
 
 import random
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 

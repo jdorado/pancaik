@@ -1,10 +1,9 @@
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict
+from datetime import datetime, timedelta, timezone
 
 from .agent import Agent
-from .config import logger
 from .agent_handler import AgentHandler
+from .config import logger
 
 
 async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
@@ -33,7 +32,7 @@ async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
     for doc in agent_docs:
         # Extract id and config from document
         agent_id = str(doc["_id"])
-        
+
         # Create Agent instance
         agent = Agent(id=agent_id, config=doc)
         agent_list.append(agent)
@@ -48,7 +47,7 @@ async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
 async def execute_task(agent: Agent) -> None:
     """
     Execute a single agent's task.
-    
+
     Args:
         agent: The agent instance to execute
     """
@@ -85,9 +84,7 @@ async def execute_task(agent: Agent) -> None:
         if retry_policy is False:
             logger.info(f"Agent {agent_id} has retry_policy=False, not scheduling retry")
             await AgentHandler.update_agent_status(
-                agent_id, 
-                "failed", 
-                {"error": str(e), "retry_count": retry_count, 'next_run': None, 'is_active': False}
+                agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
             )
             return None
 
@@ -104,20 +101,14 @@ async def execute_task(agent: Agent) -> None:
         if retry_count >= max_retries:
             logger.info(f"Agent {agent_id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
             await AgentHandler.update_agent_status(
-                agent_id, 
-                "failed", 
-                {"error": str(e), "retry_count": retry_count, 'next_run': None, 'is_active': False}
+                agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
             )
             return None
 
         # Schedule next run and update status with retry information
         await AgentHandler.update_agent_status(
-            agent_id, 
-            "scheduled", 
-            {
-                "error": str(e), 
-                "retry_count": retry_count,
-                "next_run": current_time + timedelta(minutes=retry_minutes)
-            }
+            agent_id,
+            "scheduled",
+            {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
         )
         logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
