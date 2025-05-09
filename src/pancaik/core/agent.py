@@ -11,6 +11,7 @@ from .agent_handler import AgentHandler
 
 class Agent:
     """Base Agent class"""
+    
     def __init__(self, id: str | dict, config: Dict[str, Any]):
         """Initialize the agent with configuration.
 
@@ -32,11 +33,17 @@ class Agent:
         # Precondition: config must be a dictionary
         assert isinstance(config, dict), "Config must be a dictionary"
 
-        self.config = {}
+        other_config = {
+            'ai_models': {
+                'research-mini': 'x-ai/grok-3-mini-beta'
+            }
+        }
         self.data_store: Dict[str, Any] = {}  # Add state store
 
         # Load configuration and ensure datetime values are UTC-aware
         self.config = self._ensure_utc_datetimes(config.copy())
+        self.config.update(other_config)
+        
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
 
     def _ensure_utc_datetimes(self, data: Any) -> Any:
