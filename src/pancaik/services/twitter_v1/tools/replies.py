@@ -9,7 +9,7 @@ from typing import Any, Dict
 
 from ....core.config import logger
 from ....core.data_handler import DataHandler
-from ....services.twitter.tools.search import search_tweets
+from ....services.twitter_v1.tools.search import search_tweets
 from ....tools.base import tool
 from ....utils.ai_router import get_completion
 from ....utils.json_parser import extract_json_content

@@ -16,6 +16,7 @@ import re
 from ...utils.ai_router import get_completion
 from ...utils.json_parser import extract_json_content
 from datetime import datetime
+from ...utils.prompt_utils import get_prompt
 
 
 async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHandler, depth: int = 10) -> Tuple[str, int, int]:
@@ -116,6 +117,10 @@ async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHa
     <reply_to>
     <post>{username}: {text}</post>
     </reply_to>
+
+    <your_username>
+    {agent_user}
+    </your_username>
     """
 
     # Return the conversation text, reply count, and handle count
@@ -192,27 +197,21 @@ async def twitter_select_mentions(data_store: Dict[str, Any], twitter_connection
         should_reply = handle_count <= int(max_mentioned_users) and count_replies < int(max_thread_replies)
 
         # if reply_evaluation_rules is not None, evaluate the conversation
+        output_format = f"""
+        OUTPUT IN JSON: Strict JSON format, no additional text.
+        "should_reply": true or false
+        """
         if reply_evaluation_rules:
-            prompt = f"""
-            TODAY: {datetime.utcnow().strftime("%Y-%m-%d")}
+            prompt_data = {
+                "task": "Decide if the conversation is worth replying to, extrictly follow the guidelines.",
+                "today": datetime.utcnow().strftime("%Y-%m-%d"),
+                "context": data_store.get("context", {}),
+                "guidelines": reply_evaluation_rules,
+                "conversation": conversation,
+                "output_format": output_format
+            }
             
-            <task>
-                Decide if the conversation is worth replying to, extrictly follow the guidelines.
-            </task>
-            
-            <guidelines>
-            {reply_evaluation_rules}
-            </guidelines>
-            
-            <conversation>
-                {conversation}
-            </conversation>
-            
-            <output_format>
-            OUTPUT IN JSON: Strict JSON format, no additional text.
-            "should_reply": true or false,
-            </output_format>
-            """
+            prompt = get_prompt(prompt_data)
             model_id = config.get("ai_models", {}).get("research-mini")
             response = await get_completion(prompt=prompt, model_id=model_id)
             parsed_response = extract_json_content(response) or {}
@@ -222,9 +221,7 @@ async def twitter_select_mentions(data_store: Dict[str, Any], twitter_connection
             logger.info(f"Selected mention {mention['_id']} to reply to")
             return {
                 "status": "success",
-                "mention_id": mention["_id"],
-                "conversation": conversation,
-                "values": {"context": conversation, "reply_to_id": mention["_id"]},
+                "values": {"context": {"conversation": conversation}, "reply_to_id": mention["_id"]},
             }
         else:
             # Mark as reviewed only if not suitable

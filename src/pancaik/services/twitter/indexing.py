@@ -71,3 +71,86 @@ async def twitter_index_mentions(twitter_connection: str, target_handle: str) ->
     }
 
     return result
+
+@tool()
+async def index_tweet_by_id(twitter_connection: str, tweet_id: str) -> Dict[str, Any]:
+    """
+    Indexes a single tweet by its ID.
+
+    Args:
+        twitter_connection: Connection ID for Twitter credentials
+        tweet_id: The ID of the tweet to index
+
+    Returns:
+        Dictionary with indexing operation results
+    """
+    # Preconditions
+    assert tweet_id, "Tweet ID must be provided"
+    
+    # Return immediately if tweet_id is 0 or not provided
+    if not tweet_id or tweet_id == "0":
+        logger.warning("Tweet ID not provided or is 0, skipping indexing")
+        return {
+            "status": "skipped", 
+            "tweet_id": tweet_id, 
+            "indexed_count": 0, 
+            "message": "Tweet ID not provided or is 0"
+        }
+
+    # Get database instance from config
+    db = get_config("db")
+    if db is None:
+        raise ValueError("Database not initialized in config")
+
+    # Initialize connection handler with db
+    connection_handler = ConnectionHandler(db)
+    twitter = await client.get_client(twitter_connection, connection_handler)
+
+    # Get the semaphore for Twitter API rate limiting
+    semaphore = get_config("twitter_semaphore")
+    assert semaphore is not None, "Twitter semaphore must be available in config"
+
+    # Ensure we have a handler for database operations
+    handler = TwitterHandler()
+
+    # Check if tweet is already indexed
+    existing_ids = await handler.get_existing_tweet_ids([tweet_id])
+    if tweet_id in existing_ids:
+        logger.info(f"Tweet {tweet_id} is already indexed")
+        return {"status": "already_indexed", "tweet_id": tweet_id, "indexed_count": 0}
+
+    # Acquire semaphore to respect rate limits
+    await semaphore.acquire()
+    try:
+        # Fetch the tweet
+        tweet = await twitter.get_tweet(tweet_id)
+
+        if not tweet:
+            logger.info(f"Tweet {tweet_id} not found or not accessible")
+            return {"status": "tweet_not_found", "tweet_id": tweet_id, "indexed_count": 0}
+
+        # Insert tweet into database
+        await handler.insert_tweets([tweet])
+        logger.info(f"Successfully indexed tweet {tweet_id}")
+
+        # Postcondition - ensure we have the indexing result
+        result = {
+            "status": "success", 
+            "tweet_id": tweet_id, 
+            "indexed_count": 1, 
+            "tweet_data": tweet
+        }
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error indexing tweet {tweet_id}: {str(e)}")
+        return {
+            "status": "error", 
+            "tweet_id": tweet_id, 
+            "error": str(e), 
+            "indexed_count": 0
+        }
+    finally:
+        # Always release the semaphore
+        semaphore.release()

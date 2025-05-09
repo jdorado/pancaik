@@ -11,6 +11,36 @@ Tools are asynchronous functions that are registered globally through a decorato
 3. They typically take a `data_store` parameter for sharing data between tools
 4. They return a dictionary with results and optional shared values
 
+## Tool Return Values
+
+Tools should return a dictionary with the following structure:
+
+```python
+{
+    "status": "success",  # or "error", "no_results", etc.
+    "values": {  # Optional values to share in data_store
+        "context": {  # Optional context that will be auto-indexed if key exists
+            "key": "value"  # e.g. "research": "research results..."
+        },
+        "output": {  # Optional outputs that will be timestamped
+            "key": "value"  # e.g. "selected_topic": {"title": "Topic 1"}
+        }
+    }
+}
+```
+
+### Values Dictionary Structure
+
+The `values` dictionary in the return object has two special keys:
+
+1. `context`: Used for accumulating context. If a key already exists, it will be auto-indexed (e.g. research, research_2, etc.)
+   - Example: Research results, web search results, etc.
+   - Each value is stored with metadata (timestamp, tool_id)
+
+2. `output`: Used for outputs that need tracking
+   - Example: Selected topics, generated content, etc.
+   - Each value is stored with metadata (timestamp, tool_id)
+
 ## Basic Tool Structure
 
 Here's the basic structure of a Pancaik tool:
@@ -30,7 +60,7 @@ async def my_custom_tool(parameter1: str, data_store: Dict[str, Any], optional_p
         optional_param: Description of optional parameter with default value
         
     Returns:
-        Dictionary with operation results
+        Dictionary with operation results and optional values
     """
     # Preconditions
     assert parameter1, "parameter1 must be provided"
@@ -43,8 +73,12 @@ async def my_custom_tool(parameter1: str, data_store: Dict[str, Any], optional_p
         "status": "success",
         "result": result,
         "values": {
-            # Values to share in the data_store
-            "processed_value": result
+            "context": {
+                "processed_data": result  # Will be auto-indexed if key exists
+            },
+            "output": {
+                "final_result": result  # Will be stored with timestamp
+            }
         }
     }
 ```
@@ -54,20 +88,44 @@ async def my_custom_tool(parameter1: str, data_store: Dict[str, Any], optional_p
 The `data_store` parameter is a dictionary that is passed between tools in a pipeline. To share data with other tools:
 
 1. Include a `values` key in your return dictionary
-2. Add key-value pairs in the `values` dictionary that should be shared
-3. These values will be automatically added to the agent's `data_store`
+2. Use `context` for accumulating data that will be concatenated
+3. Use `output` for final results that need timestamp tracking
+4. These values will be automatically added to the agent's `data_store`
 
-Example:
+## Real-World Example: Research Tool
+
+Here's a simplified version of a research tool:
 
 ```python
-return {
-    "status": "success",
-    "result": "Operation completed",
-    "values": {
-        "important_data": processed_data,
-        "operation_id": generated_id
+@tool
+async def research_topic(topic: str, data_store: Dict[str, Any]):
+    """
+    Researches a topic and returns findings.
+    
+    Args:
+        topic: Topic to research
+        data_store: Agent's data store containing configuration and state
+        
+    Returns:
+        Dictionary with research results
+    """
+    # Research logic here...
+    research_result = "Research findings..."
+    
+    return {
+        "status": "success",
+        "values": {
+            "context": {
+                "research": research_result  # Will be concatenated with other research
+            },
+            "output": {
+                "topic_research": {  # Will be tracked with timestamp
+                    "topic": topic,
+                    "findings": research_result
+                }
+            }
+        }
     }
-}
 ```
 
 ## Tool Organization

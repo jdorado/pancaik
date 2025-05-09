@@ -35,10 +35,19 @@ class Agent:
 
         other_config = {
             'ai_models': {
-                'research-mini': 'x-ai/grok-3-mini-beta'
+                'research-mini': 'x-ai/grok-3-mini-beta',
+                'composing': 'anthropic/claude-3.7-sonnet',
+                'analyzing': 'o3-mini',
+                'research': 'perplexity/llama-3.1-sonar-large-128k-online'
             }
         }
-        self.data_store: Dict[str, Any] = {}  # Add state store
+        # Initialize data stores - agent level uses uppercase, tool level uses lowercase
+        self.data_store: Dict[str, Any] = {
+            "Context": {},  # Agent-level context with metadata
+            "Outputs": {},  # Agent-level outputs with metadata
+            "context": {},  # Tool-level simplified context
+            "outputs": {}   # Tool-level simplified outputs
+        }
 
         # Load configuration and ensure datetime values are UTC-aware
         self.config = self._ensure_utc_datetimes(config.copy())
@@ -121,6 +130,15 @@ class Agent:
         sig = inspect.signature(method)
         params = {}
 
+        # Update tool-level context and outputs from agent-level storage
+        for key, value_dict in self.data_store["Context"].items():
+            if isinstance(value_dict, dict) and "value" in value_dict:
+                self.data_store["context"][key] = value_dict["value"]
+
+        for key, value_dict in self.data_store["Outputs"].items():
+            if isinstance(value_dict, dict) and "value" in value_dict:
+                self.data_store["outputs"][key] = value_dict["value"]
+
         # Add data_store parameter if the method accepts it
         if "data_store" in sig.parameters:
             params["data_store"] = self.data_store
@@ -165,9 +183,57 @@ class Agent:
         # Update data store with the result
         if isinstance(result, dict):
             if "values" in result and isinstance(result["values"], dict):
-                for key, value in result["values"].items():
-                    self.data_store[key] = value
-                assert all(k in self.data_store for k in result["values"].keys()), "All values must be added to data_store"
+                values = result["values"]
+                
+                # Handle context values - auto-index if key exists
+                if "context" in values and isinstance(values["context"], dict):
+                    for key, value in values["context"].items():
+                        base_key = key
+                        final_key = key
+                        counter = 1
+                        
+                        # Auto-index if key exists
+                        while final_key in self.data_store["Context"]:
+                            counter += 1
+                            final_key = f"{base_key}_{counter}"
+                        
+                        # Store with metadata in agent-level Context
+                        self.data_store["Context"][final_key] = {
+                            "value": value,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "tool_id": tool_id
+                        }
+                        # Update tool-level context
+                        self.data_store["context"][final_key] = value
+                
+                # Handle output values
+                if "output" in values and isinstance(values["output"], dict):
+                    for key, value in values["output"].items():
+                        # Store with metadata in agent-level Outputs
+                        self.data_store["Outputs"][key] = {
+                            "value": value,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "tool_id": tool_id
+                        }
+                        # Update tool-level outputs
+                        self.data_store["outputs"][key] = value
+                
+                # Handle any other values
+                for key, value in values.items():
+                    if key not in ["context", "output"]:
+                        self.data_store[key] = value
+                
+                # Check that all values are properly stored
+                for key in result["values"].keys():
+                    if key == "context":
+                        # Context values are stored in Context
+                        assert all(k in self.data_store["Context"] for k in result["values"]["context"].keys()), "All context values must be added to data_store['Context']"
+                    elif key == "output":
+                        # Output values are stored in Outputs
+                        assert all(k in self.data_store["Outputs"] for k in result["values"]["output"].keys()), "All output values must be added to data_store['Outputs']"
+                    else:
+                        # Other values are stored directly in data_store
+                        assert key in self.data_store, f"Value '{key}' must be added to data_store"
         else:
             self.data_store[tool_id] = result
 

@@ -14,7 +14,6 @@ from ..utils.ai_router import get_completion
 from ..utils.json_parser import extract_json_content
 
 
-@tool
 async def generate_daily_topics_from_research(data_store: Dict[str, Any]):
     """
     Generates daily topics based on research findings.
@@ -130,7 +129,6 @@ async def generate_daily_topics_from_research(data_store: Dict[str, Any]):
         return {"status": "error", "message": f"Topic extraction failed: {str(e)}", "values": {}}
 
 
-@tool
 async def select_topics_from_daily_research(data_store: Dict[str, Any]):
     """
     Selects the most relevant, unposted topic from the daily generated topics.
@@ -175,7 +173,6 @@ async def select_topics_from_daily_research(data_store: Dict[str, Any]):
     return {"status": "success", "message": "Top relevant unposted topic selected", "values": {"selected_topic": selected_topic}}
 
 
-@tool
 async def mark_topic_as_posted(data_store: Dict[str, Any]):
     """
     Marks the selected topic as posted in the daily topics cache.
