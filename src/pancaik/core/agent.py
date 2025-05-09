@@ -1,10 +1,12 @@
 import inspect
-from typing import Any, Dict
+from typing import Any, Dict, List, Set, Tuple
 from datetime import datetime, timezone
+from bson import ObjectId
 
 
 from ..tools.base import _GLOBAL_TOOLS
 from .config import logger
+from .agent_handler import AgentHandler
 
 
 class Agent:
@@ -240,3 +242,170 @@ class Agent:
 
         return self.data_store
         
+    async def _get_required_sub_agents(self) -> List[Tuple[str, str]]:
+        """
+        Get list of required sub-agents by inspecting tool signatures.
+
+        Returns:
+            List of tuples (step_id, required_agent)
+        """
+        requirements = []
+        
+        # Check tools pipeline only
+        tools_pipeline = self.config.get("tools", [])
+        for step in tools_pipeline:
+            # Get step ID and tool ID
+            step_id = step.get("instance_id") if isinstance(step, dict) else None
+            tool_id = step["id"] if isinstance(step, dict) else step
+            
+            if not step_id:
+                logger.warning(f"Step {tool_id} has no instance_id, skipping sub-agent check")
+                continue
+                
+            tool = _GLOBAL_TOOLS.get(tool_id)
+            if tool and hasattr(tool, "_required_agents"):
+                for required_agent in tool._required_agents:
+                    requirements.append((step_id, required_agent))
+
+        return requirements
+        
+    async def activate(self, **kwargs):
+        """
+        Activate the agent by setting up required sub-agents.
+        Always deletes and recreates the hierarchy to ensure latest parameters are propagated.
+        If activation fails, ensures cleanup of any partially created hierarchy.
+        """
+        # Get all required sub-agents from tool signatures
+        step_requirements = await self._get_required_sub_agents()
+        created_agents = []  # Track created agents for cleanup in case of failure
+        
+        try:
+            if step_requirements:
+                # First delete any existing hierarchy to ensure clean state
+                deleted = await AgentHandler.deactivate_agent_hierarchy(self.id)
+                if deleted:
+                    logger.info(f"Cleaned up {len(deleted)-1} existing sub-agents for agent {self.id}")
+                
+                # Create each required agent fresh
+                for step_id, required_agent in step_requirements:
+                    logger.info(f"Creating new sub-agent {required_agent} for step {step_id} (owner: {self.id})")
+                    try:
+                        sub_agent_id = await self.create_sub_agent(required_agent, step_id)
+                        created_agents.append(sub_agent_id)
+                        logger.info(f"Created and activated sub-agent with ID: {sub_agent_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to create/activate sub-agent {required_agent} for step {step_id}: {str(e)}")
+                        raise  # Re-raise to trigger cleanup
+            
+            # Schedule next run after activation
+            await self.schedule_next_run()
+            
+        except Exception as e:
+            # If anything fails during activation, clean up any created agents
+            if created_agents:
+                logger.warning(f"Activation failed, cleaning up {len(created_agents)} created sub-agents")
+                try:
+                    # Deactivate the entire hierarchy to ensure complete cleanup
+                    await self.deactivate()
+                except Exception as cleanup_error:
+                    logger.error(f"Error during cleanup after failed activation: {str(cleanup_error)}")
+                    # Don't raise cleanup error, we want to raise the original error
+            
+            # Re-raise the original error
+            raise Exception(f"Failed to activate agent {self.id}: {str(e)}") from e
+    
+    async def deactivate(self, **kwargs):
+        """
+        Deactivate this agent and delete all its descendants.
+        The agent itself is preserved but marked as inactive, while all its descendants are permanently deleted.
+        """
+        # Deactivate this agent and delete descendants
+        affected = await AgentHandler.deactivate_agent_hierarchy(self.id)
+        logger.info(f"Deactivated agent {self.id} and deleted {len(affected)-1} descendants")
+
+    async def create_sub_agent(self, required_agent: str, step_id: str, override_config: Dict[str, Any] = None) -> str:
+        """
+        Create a new sub-agent instance.
+
+        Args:
+            required_agent: Name of the required agent configuration
+            step_id: ID of the step requiring this agent
+            override_config: Optional configuration overrides
+
+        Returns:
+            ID of the created agent
+        """
+        from .agent_registry import create_agent_instance, get_agent_config
+        
+        # Generate a new MongoDB ObjectId for the sub-agent
+        sub_agent_id = str(ObjectId())
+        
+        # Get parent tool configuration to extract params
+        parent_tool = next(
+            (tool for tool in self.config.get("tools", []) 
+             if tool.get("instance_id") == step_id),
+            None
+        )
+                
+        assert parent_tool is not None, f"No tool found with instance_id {step_id} in parent agent {self.id}"
+        
+        # Get account_holder_id - either from our config or use our id if we're the root account holder
+        account_holder_id = self.config.get("account_holder_id", self.config.get("owner_id"))
+        assert account_holder_id is not None, "Failed to determine account_holder_id for sub-agent"
+        
+        # Create base config overrides with essential fields
+        base_overrides = {
+            "owner_id": self.id,  # This agent owns its sub-agents
+            "step_id": step_id,
+            "required_agent": required_agent,
+            "account_holder_id": account_holder_id,  # Propagate account holder down the hierarchy
+        }
+        
+        # Get the base configuration without instantiating an agent
+        sub_agent_config = get_agent_config(required_agent)
+        
+        # Ensure each tool has an instance_id
+        if "tools" in sub_agent_config:
+            tools = sub_agent_config["tools"]
+            for i, tool in enumerate(tools):
+                if isinstance(tool, dict):
+                    if not tool.get("instance_id"):
+                        # Generate a unique instance_id if not provided
+                        tool["instance_id"] = f"{sub_agent_id}_{i}"
+                else:
+                    # If tool is just a string (tool name), convert to dict with instance_id
+                    tools[i] = {
+                        "id": tool,
+                        "instance_id": f"{sub_agent_id}_{i}"
+                    }
+            base_overrides["tools"] = tools
+        
+        # Copy required params from parent tool to sub-agent config
+        if parent_tool and "params" in parent_tool:
+            sub_agent_tools = base_overrides.get("tools", [])
+            
+            # For each tool in sub-agent config
+            for sub_tool in sub_agent_tools:
+                if isinstance(sub_tool, dict) and "params" in sub_tool:
+                    # Only copy parameters that exist in both configs
+                    sub_tool["params"].update({
+                        k: v for k, v in parent_tool["params"].items()
+                        if k in sub_tool["params"]
+                    })
+        
+        # Merge with any additional overrides
+        if override_config:
+            base_overrides.update(override_config)
+            
+        # Create the final agent instance with all overrides
+        agent = create_agent_instance(required_agent, sub_agent_id, base_overrides)
+        
+        # Save agent to database using owner_id for hierarchy
+        success = await AgentHandler.insert_agent(sub_agent_id, agent.config, owner_id=self.id)
+        if not success:
+            raise Exception(f"Failed to create sub-agent {sub_agent_id}")
+        
+        # Activate the agent
+        await agent.activate()
+        
+        return sub_agent_id
