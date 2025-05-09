@@ -1,0 +1,35 @@
+"""
+Twitter indexer agent configuration.
+Defines the minimal required configuration for a twitter indexing agent.
+"""
+from typing import Dict, Any
+
+CONFIG: Dict[str, Any] = {
+    "tools": [
+        {
+            "id": "twitter_index_mentions",
+            "instance_id": "",  # Will be populated by parent agent
+            "params": {
+                "target_handle": "",  # Required param from parent
+                "twitter_connection": "",  # Required param from parent
+            }
+        }
+    ],
+    "triggers": [
+        {
+            "id": "scheduler",
+            "instance_id": "",  # Will be populated when agent is created
+            "params": {
+                "scheduler_type": "regular",
+                "scheduler_params": {
+                    "customInterval": {
+                        "value": 10,
+                        "unit": "minutes"
+                    },
+                    "startTime": "2025-05-08T12:22:39.104Z"
+                }
+            }
+        }
+    ],
+    "outputs": []
+} 
