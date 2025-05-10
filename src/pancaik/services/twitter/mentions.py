@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Tuple
 
+from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
 from ...tools.base import tool
@@ -17,7 +18,6 @@ from ...utils.prompt_utils import get_prompt
 from . import client as twitter_client
 from .client import TwitterClient
 from .handlers import TwitterHandler
-from ...core.ai_logger import ai_logger
 
 
 async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHandler, depth: int = 10) -> Tuple[str, int, int]:
@@ -155,10 +155,7 @@ async def twitter_select_mentions(
     owner_id = config.get("owner_id")
     agent_name = config.get("name")
 
-    ai_logger.thinking(
-        f"Selecting an unresponded mention to reply to for @{target_handle}...",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.thinking(f"Selecting an unresponded mention to reply to for @{target_handle}...", agent_id, owner_id, agent_name)
 
     # Get database instance from config
     db = get_config("db")
@@ -189,10 +186,7 @@ async def twitter_select_mentions(
         ]
     }
 
-    ai_logger.action(
-        f"Querying for mentions not yet replied to for @{username}...",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.action(f"Querying for mentions not yet replied to for @{username}...", agent_id, owner_id, agent_name)
 
     # Search for mentions
     mentions = await collection.find(query).sort([("created_at", -1)]).to_list(length=1000)
@@ -206,10 +200,7 @@ async def twitter_select_mentions(
     # Iterate through mentions until we find a suitable one
     for mention in mentions:
         try:
-            ai_logger.action(
-                f"Evaluating mention {mention.get('_id')} for reply suitability...",
-                agent_id, owner_id, agent_name
-            )
+            ai_logger.action(f"Evaluating mention {mention.get('_id')} for reply suitability...", agent_id, owner_id, agent_name)
             # Get full conversation
             conversation, count_replies, handle_count = await get_conversation(mention, twitter, handler)
         except Exception as e:
@@ -247,10 +238,7 @@ async def twitter_select_mentions(
 
         if should_reply:
             logger.info(f"Selected mention {mention['_id']} to reply to")
-            ai_logger.result(
-                f"Selected mention {mention['_id']} to reply to.",
-                agent_id, owner_id, agent_name
-            )
+            ai_logger.result(f"Selected mention {mention['_id']} to reply to.", agent_id, owner_id, agent_name)
             return {
                 "status": "success",
                 "values": {"context": {"conversation": conversation}, "reply_to_id": mention["_id"]},
@@ -263,13 +251,12 @@ async def twitter_select_mentions(
             )
             ai_logger.action(
                 f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as reviewed.",
-                agent_id, owner_id, agent_name
+                agent_id,
+                owner_id,
+                agent_name,
             )
 
     # If we've gone through all mentions and none are suitable
     logger.info(f"No {'unreplied' if not mentions else 'suitable'} mentions found")
-    ai_logger.result(
-        f"No {'unreplied' if not mentions else 'suitable'} mentions found for @{username}.",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.result(f"No {'unreplied' if not mentions else 'suitable'} mentions found for @{username}.", agent_id, owner_id, agent_name)
     return {"status": status, "values": {}, "should_exit": True}

@@ -12,10 +12,8 @@ from typing import Any, Dict, List, Optional, Union
 from ..core.ai_logger import ai_logger
 from ..core.config import logger
 from ..core.data_handler import DataHandler
-from ..tools.base import tool
 from ..utils.ai_router import get_completion
 from ..utils.prompt_utils import get_prompt
-
 
 
 async def generate_daily_research(data_store: Dict[str, Any]):
@@ -62,7 +60,12 @@ async def generate_daily_research(data_store: Dict[str, Any]):
     tasks_to_run: Dict[str, asyncio.Task] = {}
     topics_to_generate = []
 
-    ai_logger.thinking(f"Starting daily research check for {len(daily_research_topics)} topics", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+    ai_logger.thinking(
+        f"Starting daily research check for {len(daily_research_topics)} topics",
+        agent_id=agent_id,
+        owner_id=owner_id,
+        agent_name=agent_name,
+    )
 
     # 1. Prepare cache keys and fetch existing data in bulk
     potential_keys_map: Dict[str, str] = {}  # Map topic_key to cache_key
@@ -133,7 +136,12 @@ async def generate_daily_research(data_store: Dict[str, Any]):
             generation_errors = False
             for topic_key, result in new_results.items():
                 if isinstance(result, Exception):
-                    ai_logger.result(f"Research generation failed for topic {topic_key}: {result}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+                    ai_logger.result(
+                        f"Research generation failed for topic {topic_key}: {result}",
+                        agent_id=agent_id,
+                        owner_id=owner_id,
+                        agent_name=agent_name,
+                    )
                     generation_errors = True
                     break
                 else:
@@ -229,7 +237,9 @@ Focus on accuracy, depth, and relevance as of today. Structure the output clearl
 
     try:
         research_result = await get_completion(prompt=prompt, model_id=research_model_id)
-        ai_logger.result("Successfully completed detailed research for the topic", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+        ai_logger.result(
+            "Successfully completed detailed research for the topic", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name
+        )
         return {"status": "success", "message": "Detailed research completed for the topic.", "values": {"context": research_result}}
 
     except Exception as e:

@@ -8,8 +8,8 @@ from typing import Any, Dict, Optional
 
 import aiohttp
 
-from ..core.config import logger
 from ..core.ai_logger import ai_logger
+from ..core.config import logger
 from .base import tool
 
 
@@ -18,7 +18,9 @@ class WebhookError(Exception):
 
 
 @tool
-async def custom_webhook(webhook_url: str, output: Dict[str, Any], data_store: Dict[str, Any], custom_headers: Optional[Dict[str, str]] = None, timeout: int = 30):
+async def custom_webhook(
+    webhook_url: str, output: Dict[str, Any], data_store: Dict[str, Any], custom_headers: Optional[Dict[str, str]] = None, timeout: int = 30
+):
     """
     Sends data to a custom HTTP endpoint using POST method.
 
@@ -60,7 +62,9 @@ async def custom_webhook(webhook_url: str, output: Dict[str, Any], data_store: D
 
             if 200 <= status_code < 300:
                 logger.info(f"Successfully sent webhook to {webhook_url}")
-                ai_logger.result(f"Webhook request successful with status {status_code}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+                ai_logger.result(
+                    f"Webhook request successful with status {status_code}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name
+                )
                 return {
                     "status": "success",
                     "status_code": status_code,

@@ -25,7 +25,7 @@ ai_logger.thinking("Starting analysis...", agent_id, owner_id, agent_name)
 """
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -35,12 +35,12 @@ from .config import get_config
 
 class AILogger:
     """Specialized logger for AI agents that shows thinking process."""
-    
+
     _instance = None
     _lock = asyncio.Lock()
     _initialized = False
     _cleanup_task: Optional[asyncio.Task] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(AILogger, cls).__new__(cls)
@@ -49,7 +49,7 @@ class AILogger:
     def __init__(self):
         """Initialize the AI logger."""
         # Only set instance variables if not already initialized
-        if not hasattr(self, '_buffer'):
+        if not hasattr(self, "_buffer"):
             self._buffer: List[Dict[str, Any]] = []
             self._max_buffer_size = 10  # Maximum number of logs to buffer before writing
             self._collection: Optional[AsyncIOMotorCollection] = None
@@ -63,19 +63,15 @@ class AILogger:
                     self.db = get_config("db")
                     if self.db is None:
                         return
-                        
+
                     self._collection = self.db["ai_thoughts"]
                     # Create indexes for better query performance
-                    await self._collection.create_index([
-                        ("timestamp", -1),
-                        ("agent_id", 1),
-                        ("account_holder_id", 1)
-                    ])
-                    
+                    await self._collection.create_index([("timestamp", -1), ("agent_id", 1), ("account_holder_id", 1)])
+
                     # Start the cleanup task
                     if self._cleanup_task is None:
                         self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
-                    
+
                     self._initialized = True
 
     async def _cleanup_old_logs(self) -> None:
@@ -102,7 +98,7 @@ class AILogger:
 
     def set_retention_period(self, days: int) -> None:
         """Set the log retention period in days.
-        
+
         Args:
             days: Number of days to keep logs
         """
@@ -111,7 +107,7 @@ class AILogger:
 
     def thinking(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI thinking message.
-        
+
         Args:
             message: The thinking process message
             agent_id: ID of the agent
@@ -125,18 +121,18 @@ class AILogger:
             "agent_id": agent_id,
             "owner_id": owner_id,
             "type": "thinking",
-            "agent_name": agent_name
+            "agent_name": agent_name,
         }
-        
+
         self._buffer.append(log_entry)
-        
+
         # If buffer is full, schedule a write
         if len(self._buffer) >= self._max_buffer_size:
             asyncio.create_task(self.flush())
 
     def action(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI action message.
-        
+
         Args:
             message: The action being taken
             agent_id: ID of the agent
@@ -150,18 +146,18 @@ class AILogger:
             "agent_id": agent_id,
             "owner_id": owner_id,
             "type": "action",
-            "agent_name": agent_name
+            "agent_name": agent_name,
         }
-        
+
         self._buffer.append(log_entry)
-        
+
         # If buffer is full, schedule a write
         if len(self._buffer) >= self._max_buffer_size:
             asyncio.create_task(self.flush())
 
     def result(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI result message.
-        
+
         Args:
             message: The result or conclusion
             agent_id: ID of the agent
@@ -175,11 +171,11 @@ class AILogger:
             "agent_id": agent_id,
             "owner_id": owner_id,
             "type": "result",
-            "agent_name": agent_name
+            "agent_name": agent_name,
         }
-        
+
         self._buffer.append(log_entry)
-        
+
         # If buffer is full, schedule a write
         if len(self._buffer) >= self._max_buffer_size:
             asyncio.create_task(self.flush())
@@ -191,11 +187,11 @@ class AILogger:
 
         # Ensure we're initialized before attempting to write
         await self._ensure_initialized()
-            
+
         async with self._lock:
             if not self._buffer:  # Double-check pattern
                 return
-                
+
             try:
                 # Only write to database if we have a connection
                 if self._collection is not None:
@@ -207,4 +203,4 @@ class AILogger:
 
 
 # Global singleton instance
-ai_logger = AILogger() 
+ai_logger = AILogger()

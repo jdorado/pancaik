@@ -4,14 +4,10 @@ Research tools for agents.
 This module provides tools for generating and managing research content.
 """
 
-import asyncio
-import hashlib
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Union
+from datetime import datetime
+from typing import Any, Dict
 
 from ..core.ai_logger import ai_logger
-from ..core.config import logger
-from ..core.data_handler import DataHandler
 from ..tools.base import tool
 from ..utils.ai_router import get_completion
 from ..utils.prompt_utils import get_prompt
@@ -39,7 +35,7 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
     config = data_store.get("config", {})
     agent_name = config.get("name")
     assert owner_id, "owner_id must be provided in data_store config"
-    
+
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
     ai_logger.thinking(f"Starting research on: {research_prompt[:100]}...", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
@@ -52,11 +48,16 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
         "research_prompt": research_prompt,
     }
     prompt = get_prompt(prompt_data)
-    
+
     ai_logger.action(f"Querying Perplexity with formatted prompt", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
     research_result = await get_completion(prompt=prompt, model_id=research_model)
-    
-    ai_logger.result(f"Research completed successfully. Generated {len(research_result)} characters of insights", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+
+    ai_logger.result(
+        f"Research completed successfully. Generated {len(research_result)} characters of insights",
+        agent_id=agent_id,
+        owner_id=owner_id,
+        agent_name=agent_name,
+    )
 
     return {
         "status": "success",

@@ -6,12 +6,12 @@ This module provides tools for indexing tweets from users and mentions.
 
 from typing import Any, Dict, List, Optional
 
+from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
 from ...tools.base import tool
 from . import client
 from .handlers import TwitterHandler
-from ...core.ai_logger import ai_logger
 
 
 @tool()
@@ -83,7 +83,9 @@ async def twitter_index_mentions(twitter_connection: str, target_handle: str, da
         "indexed_count": len(new_mentions),
         "already_indexed": len(existing_ids),
     }
-    ai_logger.result(f"Indexing complete for @{username}: {len(new_mentions)} new, {len(existing_ids)} already indexed.", agent_id, owner_id, agent_name)
+    ai_logger.result(
+        f"Indexing complete for @{username}: {len(new_mentions)} new, {len(existing_ids)} already indexed.", agent_id, owner_id, agent_name
+    )
     return result
 
 

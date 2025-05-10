@@ -68,9 +68,7 @@ async def execute_task(agent: Agent) -> None:
         # Update agent status with successful completion and last run time
         current_time = datetime.now(timezone.utc)
         await AgentHandler.update_agent_status(
-            agent_id, 
-            "completed", 
-            {"last_run": current_time, "error": None, "retry_count": 0, "next_run": None}
+            agent_id, "completed", {"last_run": current_time, "error": None, "retry_count": 0, "next_run": None}
         )
 
         # Schedule next run

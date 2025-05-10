@@ -7,6 +7,7 @@ This module provides tools for composing and sending replies to tweets.
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
 from ...tools.base import tool
@@ -16,7 +17,6 @@ from ...utils.prompt_utils import get_prompt
 from . import client, indexing
 from .client import TwitterClient
 from .handlers import TwitterHandler
-from ...core.ai_logger import ai_logger
 
 
 @tool()
@@ -44,10 +44,7 @@ async def twitter_reply(
     owner_id = data_store.get("config", {}).get("owner_id") if data_store else None
     agent_name = data_store.get("config", {}).get("name") if data_store else None
 
-    ai_logger.thinking(
-        f"Preparing to reply to tweet {reply_to_id} with provided guidelines.",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.thinking(f"Preparing to reply to tweet {reply_to_id} with provided guidelines.", agent_id, owner_id, agent_name)
 
     # Get database instance from config
     db = get_config("db")
@@ -66,10 +63,7 @@ async def twitter_reply(
     handler = TwitterHandler()
 
     # 1. Compose the reply using guidelines
-    ai_logger.action(
-        f"Composing reply for tweet {reply_to_id} using AI model.",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.action(f"Composing reply for tweet {reply_to_id} using AI model.", agent_id, owner_id, agent_name)
     reply_requirements = f"""
     Maximum length: 280 characters
     No markdown formatting
@@ -98,10 +92,7 @@ async def twitter_reply(
         return {"status": "error", "message": "Failed to compose reply", "reply_to_id": reply_to_id}
 
     # 2. Send the reply
-    ai_logger.action(
-        f"Sending reply tweet for {reply_to_id}.",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.action(f"Sending reply tweet for {reply_to_id}.", agent_id, owner_id, agent_name)
     # Acquire semaphore to respect rate limits
     await semaphore.acquire()
     reply_tweet = await twitter.create_tweet(text=parsed_response["tweet"], reply_id=reply_to_id)
@@ -110,10 +101,7 @@ async def twitter_reply(
 
     if not reply_tweet or "id" not in reply_tweet:
         logger.error(f"Failed to send reply to tweet {reply_to_id}")
-        ai_logger.result(
-            f"Failed to send reply to tweet {reply_to_id}",
-            agent_id, owner_id, agent_name
-        )
+        ai_logger.result(f"Failed to send reply to tweet {reply_to_id}", agent_id, owner_id, agent_name)
         semaphore.release()
         return {"status": "error", "message": "Failed to send reply", "reply_to_id": reply_to_id}
 
@@ -139,9 +127,6 @@ async def twitter_reply(
         },
     }
 
-    ai_logger.result(
-        f"Successfully replied to tweet {reply_to_id} with new tweet {reply_tweet['id']}.",
-        agent_id, owner_id, agent_name
-    )
+    ai_logger.result(f"Successfully replied to tweet {reply_to_id} with new tweet {reply_tweet['id']}.", agent_id, owner_id, agent_name)
     logger.info(f"Successfully replied to tweet {reply_to_id}")
     return result

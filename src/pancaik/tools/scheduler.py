@@ -113,7 +113,7 @@ async def scheduler(
                 "retry_count": 0,
                 "error": None,
             }
-            
+
             success = await AgentHandler.update_agent(agent_id, update_data)
             return {"success": success, "next_run": None}
 
