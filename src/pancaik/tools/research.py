@@ -9,6 +9,7 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
+from ..core.ai_logger import ai_logger
 from ..core.config import logger
 from ..core.data_handler import DataHandler
 from ..tools.base import tool
@@ -33,7 +34,15 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
     assert research_model, "Research model must be provided"
     assert data_store, "Data store must be provided"
 
+    agent_id = data_store.get("agent_id")
+    owner_id = data_store.get("owner_id")
+    config = data_store.get("config", {})
+    agent_name = config.get("name")
+    assert owner_id, "owner_id must be provided in data_store config"
+    
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+    ai_logger.thinking(f"Starting research on: {research_prompt[:100]}...", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
 
     # Format the prompt using XML style with nested context
     prompt_data = {
@@ -43,8 +52,11 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
         "research_prompt": research_prompt,
     }
     prompt = get_prompt(prompt_data)
+    
+    ai_logger.action(f"Querying Perplexity with formatted prompt", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
     research_result = await get_completion(prompt=prompt, model_id=research_model)
-    logger.info(f"Successfully completed Perplexity research for prompt")
+    
+    ai_logger.result(f"Research completed successfully. Generated {len(research_result)} characters of insights", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
 
     return {
         "status": "success",
@@ -74,6 +86,10 @@ async def generate_daily_research(data_store: Dict[str, Any]):
     assert data_store, "Data store must be provided"
 
     config = data_store.get("config", {})
+    agent_id = data_store.get("agent_id")
+    owner_id = config.get("owner_id") or config.get("account_holder_id")
+    agent_name = config.get("name")
+    assert owner_id, "owner_id must be provided in data_store config"
 
     daily_research_topics = config.get("daily_research_topics")
     assert daily_research_topics, "daily_research_topics must be configured"
@@ -93,7 +109,7 @@ async def generate_daily_research(data_store: Dict[str, Any]):
     tasks_to_run: Dict[str, asyncio.Task] = {}
     topics_to_generate = []
 
-    logger.info(f"Starting daily research check.")
+    ai_logger.thinking(f"Starting daily research check for {len(daily_research_topics)} topics", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
 
     # 1. Prepare cache keys and fetch existing data in bulk
     potential_keys_map: Dict[str, str] = {}  # Map topic_key to cache_key
@@ -154,7 +170,7 @@ async def generate_daily_research(data_store: Dict[str, Any]):
 
     # 3. Run generation tasks concurrently if any are needed
     if tasks_to_run:
-        logger.info(f"Generating research for {len(tasks_to_run)} topics...")
+        ai_logger.action(f"Generating research for {len(tasks_to_run)} topics", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
         try:
             results_list = await asyncio.gather(*tasks_to_run.values())
             new_results = dict(zip(tasks_to_run.keys(), results_list))
@@ -163,53 +179,36 @@ async def generate_daily_research(data_store: Dict[str, Any]):
             save_tasks = []
             generation_errors = False
             for topic_key, result in new_results.items():
-                if isinstance(result, Exception):  # Handle potential errors from individual generation tasks
-                    logger.error(f"Research generation failed for topic {topic_key}: {result}")
+                if isinstance(result, Exception):
+                    ai_logger.result(f"Research generation failed for topic {topic_key}: {result}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
                     generation_errors = True
                     break
                 else:
-                    logger.debug(f"Successfully generated research for topic: {topic_key}")
                     research_outputs[topic_key] = result
                     research_key = potential_keys_map[topic_key]
-                    # Prepare save operations to run concurrently
                     save_tasks.append(handler.save_data(research_key, result, now))
 
-            # Return error if any generation failed
             if generation_errors:
-                logger.error("Aborting research process due to generation errors")
                 return {"status": "error", "message": "Research generation failed for one or more topics", "values": {}}
 
-            # Wait for all save operations to complete
             if save_tasks:
-                logger.info(f"Saving {len(save_tasks)} new research results...")
-                # Don't use return_exceptions to ensure all operations succeed
                 try:
                     save_results = await asyncio.gather(*save_tasks)
-                    # Verify all save operations succeeded
                     if not all(save_results):
-                        logger.error("One or more save operations failed")
+                        ai_logger.result("One or more save operations failed", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
                         return {"status": "error", "message": "Failed to save one or more research topics", "values": {}}
                 except Exception as e:
-                    logger.error(f"Error saving research data: {e}")
+                    ai_logger.result(f"Error saving research data: {e}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
                     return {"status": "error", "message": f"Error saving research data: {e}", "values": {}}
 
-        except Exception as e:  # Catch errors during the gather/save process
-            logger.error(f"Error during parallel research generation: {e}")
+        except Exception as e:
+            ai_logger.result(f"Error during parallel research generation: {e}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
             return {"status": "error", "message": f"Error during research generation: {e}", "values": {}}
-
-    # 5. Return final combined results only if we have results for all topics
-    if len(research_outputs) != len(daily_research_topics):
-        logger.error(f"Incomplete research results: {len(research_outputs)}/{len(daily_research_topics)} topics completed")
-        return {
-            "status": "error",
-            "message": f"Incomplete research results: {len(research_outputs)}/{len(daily_research_topics)} topics completed",
-            "values": {},
-        }
 
     generated_count = len(tasks_to_run)
     cached_count = len(daily_research_topics) - generated_count
     message = f"Research complete. Generated: {generated_count}, Cached: {cached_count}."
-    logger.info(message)
+    ai_logger.result(message, agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
 
     return {"status": "success", "message": message, "values": {"daily_research_results": research_outputs}}
 
@@ -234,21 +233,26 @@ async def research_topic(data_store: Dict[str, Any], topic: Optional[Union[str, 
     """
     assert data_store, "Data store must be provided"
 
+    config = data_store.get("config", {})
+    agent_id = data_store.get("agent_id")
+    owner_id = config.get("owner_id") or config.get("account_holder_id")
+    agent_name = config.get("name")
+    assert owner_id, "owner_id must be provided in data_store config"
+
     # 1. Determine the actual topic to research
     actual_topic: Union[str, Dict[str, Any]]
     if topic is not None:
         actual_topic = topic
-        logger.info("Using provided topic argument for research.")
+        ai_logger.thinking("Using provided topic argument for research", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
     else:
         selected_topic = data_store.get("selected_topic")
         assert selected_topic, "Topic argument not provided and selected_topic not found in data_store"
         actual_topic = selected_topic
-        logger.info("Using selected_topic from data_store for research.")
+        ai_logger.thinking("Using selected_topic from data_store for research", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
 
     assert isinstance(actual_topic, (str, dict)), "Resolved topic must be a string or a dictionary"
 
     # 2. Get required config
-    config = data_store.get("config", {})
     research_model_id = config.get("ai_models", {}).get("research")
     assert research_model_id, "Researching model ID must be configured in ai_models"
 
@@ -266,17 +270,15 @@ Focus on accuracy, depth, and relevance as of today. Structure the output clearl
         "outputs": data_store.get("outputs", {}),
     }
 
-    prompt = dict_to_xml_string(prompt_data, "research_request")
+    prompt = get_prompt(prompt_data, "research_request")
 
-    # 4. Call the AI model
+    ai_logger.action("Calling AI model for detailed research", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+
     try:
         research_result = await get_completion(prompt=prompt, model_id=research_model_id)
-
-        logger.info(f"Successfully completed detailed research for the topic.")
-
-        # 5. Return the result
-        return {"status": "success", "message": f"Detailed research completed for the topic.", "values": {"context": research_result}}
+        ai_logger.result("Successfully completed detailed research for the topic", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+        return {"status": "success", "message": "Detailed research completed for the topic.", "values": {"context": research_result}}
 
     except Exception as e:
-        logger.exception(f"Error during detailed research for the topic: {e}", exc_info=True)
+        ai_logger.result(f"Error during detailed research: {e}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
         return {"status": "error", "message": f"Error during detailed research for the topic: {e}", "values": {}}

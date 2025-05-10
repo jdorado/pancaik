@@ -52,6 +52,7 @@ class Agent:
         # Load configuration and ensure datetime values are UTC-aware
         self.config = self._ensure_utc_datetimes(config.copy())
         self.config.update(other_config)
+        self.data_store["owner_id"] = self.config.get("account_holder_id", self.config.get("owner_id"))
 
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
 

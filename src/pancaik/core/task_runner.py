@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from .agent import Agent
 from .agent_handler import AgentHandler
+from .ai_logger import ai_logger
 from .config import logger
 
 
@@ -112,3 +113,6 @@ async def execute_task(agent: Agent) -> None:
             {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
         )
         logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
+    finally:
+        # Flush any buffered AI logs
+        await ai_logger.flush()

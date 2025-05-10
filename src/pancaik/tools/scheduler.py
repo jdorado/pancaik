@@ -48,6 +48,7 @@ async def scheduler(
     scheduler_type: ScheduleType,
     scheduler_params: Dict[str, Any],
     last_run: Optional[Union[str, int, float, datetime]] = None,
+    next_run: Optional[Union[str, int, float, datetime]] = None,
 ) -> Dict[str, Any]:
     """
     Processes scheduling configuration from the UI and updates the agent's next_run timestamp.
@@ -63,6 +64,7 @@ async def scheduler(
             }
             RandomIntervalParams: { minMinutes: number, maxMinutes: number }
         last_run: Optional timestamp of the last run (string ISO format, Unix timestamp, or datetime)
+        next_run: Optional timestamp to override scheduling logic (string ISO format, Unix timestamp, or datetime)
 
     Returns:
         Dictionary containing:
@@ -76,7 +78,25 @@ async def scheduler(
     assert scheduler_type in ["one-time", "regular", "random-interval"], f"Invalid schedule type: {scheduler_type}"
 
     now = datetime.now(timezone.utc)
-    next_run = None
+    calculated_next_run = None
+
+    # If next_run is provided, use it directly
+    if next_run is not None:
+        calculated_next_run = convert_to_datetime(next_run, "next_run")
+        # Update the agent with the provided next_run time
+        success = await AgentHandler.update_agent(
+            agent_id,
+            {
+                "next_run": calculated_next_run,
+                "last_run": convert_to_datetime(last_run, "last_run") if last_run is not None else None,
+                "status": "scheduled",
+                "is_active": True,
+                "updated_at": now,
+                "retry_count": 0,
+                "error": None,
+            },
+        )
+        return {"success": success, "next_run": calculated_next_run}
 
     # Convert last_run to datetime if provided
     last_run_dt = convert_to_datetime(last_run, "last_run") if last_run is not None else None
@@ -99,7 +119,7 @@ async def scheduler(
             return {"success": success, "next_run": None}
 
         # If it hasn't run yet, schedule it
-        next_run = convert_to_datetime(scheduler_params["timestamp"], "timestamp")
+        calculated_next_run = convert_to_datetime(scheduler_params["timestamp"], "timestamp")
 
     elif scheduler_type == "regular":
         assert "customInterval" in scheduler_params, "Regular schedule requires interval configuration"
@@ -115,7 +135,7 @@ async def scheduler(
 
         # If no previous run and start time is in future, use start time
         if last_run_dt is None and start_time > now:
-            next_run = start_time
+            calculated_next_run = start_time
         else:
             # Use the most recent time between last_run and start_time
             reference_time = last_run_dt if last_run_dt is not None else start_time
@@ -128,11 +148,11 @@ async def scheduler(
             if elapsed_minutes % total_minutes == 0:
                 intervals_passed += 1
 
-            next_run = reference_time + timedelta(minutes=total_minutes * intervals_passed)
+            calculated_next_run = reference_time + timedelta(minutes=total_minutes * intervals_passed)
 
             # Ensure next_run is in the future
-            while next_run <= now:
-                next_run += timedelta(minutes=total_minutes)
+            while calculated_next_run <= now:
+                calculated_next_run += timedelta(minutes=total_minutes)
 
     elif scheduler_type == "random-interval":
         assert "minMinutes" in scheduler_params, "Random interval requires minimum minutes"
@@ -148,27 +168,27 @@ async def scheduler(
         # Calculate next run time from last run or now
         reference_time = last_run_dt if last_run_dt is not None else now
         random_minutes = random.randint(min_minutes, max_minutes)
-        next_run = reference_time + timedelta(minutes=random_minutes)
+        calculated_next_run = reference_time + timedelta(minutes=random_minutes)
 
         # If next_run is in the past (could happen if last_run is old),
         # calculate from current time instead
-        if next_run <= now:
-            next_run = now + timedelta(minutes=random_minutes)
+        if calculated_next_run <= now:
+            calculated_next_run = now + timedelta(minutes=random_minutes)
 
     else:
         raise ValueError(f"Unsupported schedule type: {scheduler_type}")
 
     # For non-one-time schedules that have a next_run, update with scheduled status
-    if next_run is not None:
-        assert next_run.tzinfo is not None, "next_run must be timezone-aware"
-        assert next_run > now, "next_run must be in the future"
+    if calculated_next_run is not None:
+        assert calculated_next_run.tzinfo is not None, "next_run must be timezone-aware"
+        assert calculated_next_run > now, "next_run must be in the future"
 
         # Update the agent's next_run time in the database
-        logger.info(f"Updating agent {agent_id} with next_run {next_run}")
+        logger.info(f"Updating agent {agent_id} with next_run {calculated_next_run}")
         success = await AgentHandler.update_agent(
             agent_id,
             {
-                "next_run": next_run,
+                "next_run": calculated_next_run,
                 "last_run": last_run_dt,
                 "status": "scheduled",
                 "is_active": True,
@@ -180,4 +200,4 @@ async def scheduler(
     else:
         success = True  # For one-time tasks that were deactivated
 
-    return {"success": success, "next_run": next_run}
+    return {"success": success, "next_run": calculated_next_run}
