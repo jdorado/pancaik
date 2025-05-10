@@ -80,13 +80,21 @@ class TwitterHandler:
         cursor = collection.find({"$text": {"$search": query}}, sort=[("created_at", -1)], limit=limit)
         return await cursor.to_list(length=limit)
 
-    async def get_tweets_by_user(self, username: str, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get tweets by a specific user."""
+    async def get_tweets_by_user(self, username: str, limit: int = 100, include_replies: bool = False) -> List[Dict[str, Any]]:
+        """Get tweets by a specific user, optionally including replies."""
         assert username, "Username must not be empty"
         assert limit > 0, "Limit must be positive"
+        assert isinstance(include_replies, bool), "include_replies must be a boolean"
 
         collection = self.get_collection()
-        cursor = collection.find({"username": username}, sort=[("created_at", -1)], limit=limit)
+        query = {"username": username}
+        if not include_replies:
+            # Exclude tweets that are replies (replied_to_id or inReplyToStatusId is set)
+            query["$or"] = [
+                {"replied_to_id": {"$exists": False}},
+                {"replied_to_id": None},
+            ]
+        cursor = collection.find(query, sort=[("created_at", -1)], limit=limit)
         return await cursor.to_list(length=limit)
 
     async def get_tweets_from_users(
