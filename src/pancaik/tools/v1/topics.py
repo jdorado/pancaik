@@ -7,10 +7,10 @@ This module provides tools for generating and managing topics based on research.
 from datetime import datetime
 from typing import Any, Dict
 
-from ..core.config import logger
-from ..core.data_handler import DataHandler
-from ..utils.ai_router import get_completion
-from ..utils.json_parser import extract_json_content
+from ...core.config import logger
+from ...core.data_handler import DataHandler
+from ...utils.ai_router import get_completion
+from ...utils.json_parser import extract_json_content
 
 
 async def generate_daily_topics_from_research(data_store: Dict[str, Any]):

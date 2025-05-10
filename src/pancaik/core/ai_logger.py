@@ -1,8 +1,27 @@
 """
-AI logger for showing agent thinking process and batching logs to MongoDB.
+# Tools AI Logging Guidelines:
+- Use ai_logger.thinking() for initial analysis and planning
+- Use ai_logger.action() for significant operations being performed
+- Use ai_logger.result() for outcomes and conclusions
+- Keep standard logger.info/error for system-level logging
+- AI logs should tell a story of the tool's thought process
+- Always extract agent_id from data_store for AI logging context
+- AI logs are automatically batched and persisted at task completion
+- If the data store is missing, add it to the tools first.
+- AI logging should focus on the AI elements and the tool's flow—log what the tool is doing, not system-level or unrelated errors. Only log exceptions if they are directly related to the tool's purpose or flow.
+- Standard logger.info/error should be used for system-level logging
 
-This module provides a specialized logger for AI agents to show their thinking process
-and batch log entries to MongoDB for efficiency.
+Example:
+```python
+from pancaik.core.ai_logger import ai_logger
+
+# Get required IDs from data_store
+agent_id = data_store.get("agent_id")
+owner_id = data_store.get("config", {}).get("owner_id")
+agent_name = data_store.get("config", {}).get("name")
+
+ai_logger.thinking("Starting analysis...", agent_id, owner_id, agent_name)
+```
 """
 
 import asyncio
@@ -96,7 +115,7 @@ class AILogger:
         Args:
             message: The thinking process message
             agent_id: ID of the agent
-            owner_id: ID of the account owner
+            owner_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
@@ -121,7 +140,7 @@ class AILogger:
         Args:
             message: The action being taken
             agent_id: ID of the agent
-            owner_id: ID of the account owner
+            owner_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
@@ -146,7 +165,7 @@ class AILogger:
         Args:
             message: The result or conclusion
             agent_id: ID of the agent
-            owner_id: ID of the account owner
+            owner_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
