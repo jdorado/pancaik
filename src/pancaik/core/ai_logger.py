@@ -5,8 +5,8 @@
 - Use ai_logger.result() for outcomes and conclusions
 - Keep standard logger.info/error for system-level logging
 - AI logs should tell a story of the tool's thought process
+- Focus on the main action/objective of the function, it's a narrative
 - Always extract agent_id from data_store for AI logging context
-- AI logs are automatically batched and persisted at task completion
 - If the data store is missing, add it to the tools first.
 - AI logging should focus on the AI elements and the tool's flow—log what the tool is doing, not system-level or unrelated errors. Only log exceptions if they are directly related to the tool's purpose or flow.
 - Standard logger.info/error should be used for system-level logging

@@ -3,7 +3,7 @@ Sample tool skeleton for Pancaik agents.
 
 This module provides a template for creating new tools using the @tool decorator.
 
-# Pancaik Tool Best Practices (@tools.mdc)
+# - Tool is always async, no nested functions, keep it simple
 # - Return {values: {context: {new_key: new_value}}} and use descriptive, globally-unique keys
 # - Add 'should_exit': True to the return dict to gracefully end the pipeline when needed
 # - Use a proper name to identify the output in a global context (avoid ambiguous names)

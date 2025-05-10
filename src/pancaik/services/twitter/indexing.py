@@ -15,44 +15,6 @@ from . import client
 from .handlers import TwitterHandler
 
 
-# TODO delte
-@tool()
-async def twitter_index_self(twitter_connection: str, data_store: dict) -> Optional[List[Dict]]:
-    """
-    Index tweets from the authenticated user.
-
-    Args:
-        twitter_connection: Connection ID for Twitter credentials
-        data_store: Dictionary containing agent context for AI logging
-
-    Returns:
-        List of processed tweet data or None if not found
-    """
-    # Preconditions
-    assert data_store is not None, "data_store must be provided for AI logging"
-
-    # Get database instance from config
-    db = get_config("db")
-    if db is None:
-        raise ValueError("Database not initialized in config")
-
-    # Initialize connection handler with db
-    connection_handler = ConnectionHandler(db)
-    twitter = await client.get_client(twitter_connection, connection_handler)
-
-    # Create query to search for mentions excluding retweets
-    target_handle = twitter.get_username()
-    username = target_handle.replace("@", "").strip()
-
-    # Get the Twitter handler for database operations
-    handler = TwitterHandler()
-
-    # Get latest indexed data by querying all users in a single database call
-    user_info = await handler.get_user(username)
-    user_id = user_info.get("user_id")
-    return await twitter_index_user(twitter_connection, username, data_store, user_id)
-
-
 @tool()
 async def twitter_index_mentions(twitter_connection: str, target_handle: str, data_store: dict) -> Optional[List[Dict]]:
     """

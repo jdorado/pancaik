@@ -36,10 +36,10 @@ class Agent:
         other_config = {
             "ai_models": {
                 "default": "x-ai/grok-3-mini-beta",
-                "research-mini": "x-ai/grok-3-mini-beta",
                 "composing": "anthropic/claude-3.7-sonnet",
-                "analyzing": "o3-mini",
                 "research": "perplexity/llama-3.1-sonar-large-128k-online",
+                "research-mini": "x-ai/grok-3-mini-beta",
+                "analyzing": "o3-mini",
             },
             "account_id": config.get("account_id", config.get("owner_id")),
         }
