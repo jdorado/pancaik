@@ -88,7 +88,6 @@ async def scheduler(
             agent_id,
             {
                 "next_run": calculated_next_run,
-                "last_run": convert_to_datetime(last_run, "last_run") if last_run is not None else None,
                 "status": "scheduled",
                 "is_active": True,
                 "updated_at": now,
@@ -107,7 +106,6 @@ async def scheduler(
         # If this is a one-time schedule and it has already run, deactivate it
         if last_run_dt is not None:
             update_data = {
-                "last_run": last_run_dt,
                 "next_run": None,
                 "status": None,
                 "is_active": False,
@@ -115,6 +113,7 @@ async def scheduler(
                 "retry_count": 0,
                 "error": None,
             }
+            
             success = await AgentHandler.update_agent(agent_id, update_data)
             return {"success": success, "next_run": None}
 
@@ -183,20 +182,18 @@ async def scheduler(
         assert calculated_next_run.tzinfo is not None, "next_run must be timezone-aware"
         assert calculated_next_run > now, "next_run must be in the future"
 
+        update_data = {
+            "next_run": calculated_next_run,
+            "status": "scheduled",
+            "is_active": True,
+            "updated_at": now,
+            "retry_count": 0,
+            "error": None,
+        }
+
         # Update the agent's next_run time in the database
         logger.info(f"Updating agent {agent_id} with next_run {calculated_next_run}")
-        success = await AgentHandler.update_agent(
-            agent_id,
-            {
-                "next_run": calculated_next_run,
-                "last_run": last_run_dt,
-                "status": "scheduled",
-                "is_active": True,
-                "updated_at": now,
-                "retry_count": 0,
-                "error": None,
-            },
-        )
+        success = await AgentHandler.update_agent(agent_id, update_data)
     else:
         success = True  # For one-time tasks that were deactivated
 

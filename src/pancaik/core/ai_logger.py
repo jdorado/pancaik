@@ -32,7 +32,7 @@ class AILogger:
         # Only set instance variables if not already initialized
         if not hasattr(self, '_buffer'):
             self._buffer: List[Dict[str, Any]] = []
-            self._max_buffer_size = 100  # Maximum number of logs to buffer before writing
+            self._max_buffer_size = 10  # Maximum number of logs to buffer before writing
             self._collection: Optional[AsyncIOMotorCollection] = None
             self._retention_days = 30  # Number of days to keep logs
 
