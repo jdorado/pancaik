@@ -22,7 +22,7 @@ CONFIG: Dict[str, Any] = {
             "instance_id": "",  # Will be populated when agent is created
             "params": {
                 "scheduler_type": "regular",
-                "scheduler_params": {"customInterval": {"value": 30, "unit": "minutes"}, "startTime": "2025-05-08T12:22:39.104Z"},
+                "scheduler_params": {"customInterval": {"value": 60, "unit": "minutes"}, "startTime": "2025-05-08T12:22:39.104Z"},
             },
         }
     ],
