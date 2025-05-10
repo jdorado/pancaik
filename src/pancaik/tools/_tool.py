@@ -12,10 +12,13 @@ This module provides a template for creating new tools using the @tool decorator
 """
 
 from typing import Any, Dict
-from .base import tool
+
 from ..core.config import logger
-from ..utils.prompt_utils import get_prompt
 from ..utils.ai_router import get_completion
+from ..utils.json_parser import extract_json_content
+from ..utils.prompt_utils import get_prompt
+from .base import tool
+
 
 # Example: Register this tool for a specific agent by passing agents=["agent_example"]
 @tool(agents=["agent_example"])
@@ -43,17 +46,22 @@ async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> D
     logger.info(f"Running sample_tool for agent {agent_id} ({agent_name}) with param1={param1}, param2={param2}")
 
     # --- Tool logic: LLM prompt example ---
+    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"result": "Your result here"\n"""
     prompt_data = {
         "task": "Repeat the input string in uppercase N times.",
         "input_string": param1,
         "repeat_count": param2,
         "context": data_store.get("context", {}),
+        "output_format": output_format,
     }
     prompt = get_prompt(prompt_data)
-    model_id = config.get("ai_models", {}).get("default") or "gpt-3.5-turbo"
-    llm_result = await get_completion(prompt=prompt, model_id=model_id)
+    model_id = config.get("ai_models", {}).get("default")
+    response = await get_completion(prompt=prompt, model_id=model_id)
 
-    context = {"llm_processed": llm_result}
+    # Parse the response as strict JSON
+    parsed_response = extract_json_content(response) or {}
+
+    context = {"llm_processed": parsed_response}
     output = {"summary": f"LLM processed '{param1}' {param2} times"}
 
     # Postconditions (Design by Contract)

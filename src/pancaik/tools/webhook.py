@@ -40,7 +40,7 @@ async def custom_webhook(
     # Extract agent info from data_store for AI logging
     agent_id = data_store.get("agent_id")
     config = data_store.get("config", {})
-    owner_id = config.get("owner_id")
+    account_id = config.get("account_id")
     agent_name = config.get("name")
 
     # Preconditions
@@ -48,12 +48,14 @@ async def custom_webhook(
     assert output, "Data payload must be provided"
     assert data_store, "Data store must be provided"
 
-    ai_logger.thinking(f"Preparing to send webhook to {webhook_url}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+    ai_logger.thinking(f"Preparing to send webhook to {webhook_url}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
 
     # Set up request headers
     request_headers = {"Content-Type": "application/json", **(custom_headers or {})}
 
-    ai_logger.action(f"Sending webhook request with {len(output)} data fields", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+    ai_logger.action(
+        f"Sending webhook request with {len(output)} data fields", agent_id=agent_id, account_id=account_id, agent_name=agent_name
+    )
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url=webhook_url, json=output, headers=request_headers, timeout=timeout) as response:
@@ -63,7 +65,7 @@ async def custom_webhook(
             if 200 <= status_code < 300:
                 logger.info(f"Successfully sent webhook to {webhook_url}")
                 ai_logger.result(
-                    f"Webhook request successful with status {status_code}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name
+                    f"Webhook request successful with status {status_code}", agent_id=agent_id, account_id=account_id, agent_name=agent_name
                 )
                 return {
                     "status": "success",
@@ -73,5 +75,5 @@ async def custom_webhook(
                 }
 
             error_msg = f"Webhook request failed with status {status_code}: {response_data}"
-            ai_logger.result(f"Webhook request failed: {error_msg}", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+            ai_logger.result(f"Webhook request failed: {error_msg}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
             raise WebhookError(error_msg)

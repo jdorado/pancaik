@@ -4,16 +4,15 @@ Knowledge tools for agents.
 This module provides tools for loading and managing knowledge content.
 """
 
-from datetime import datetime
 from typing import Any, Dict, Optional
-
-from ..core.config import get_config, logger
-from ..tools.base import tool
-from ..core.ai_logger import ai_logger
 
 from bson import ObjectId
 from pymongo.collection import Collection
 from pymongo.database import Database
+
+from ..core.ai_logger import ai_logger
+from ..core.config import get_config, logger
+from ..tools.base import tool
 
 
 class KnowledgeHandler:
@@ -65,7 +64,7 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
     assert knowledge_id, "knowledge_id must be provided"
     assert data_store is not None, "data_store must be provided"
     agent_id = data_store.get("agent_id")
-    owner_id = data_store.get("config", {}).get("owner_id")
+    account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
 
     logger.info(f"Loading knowledge for agent {agent_id} with knowledge_id: {knowledge_id}")
@@ -80,7 +79,7 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
 
     # Build context: key = value of 'title', value = value of 'content'
     context = {params["title"]: params["content"]}
-    ai_logger.result(f"Knowledge loaded and added to context for agent {agent_id}", agent_id, owner_id, agent_name)
+    ai_logger.result(f"Knowledge loaded and added to context for agent {agent_id}", agent_id, account_id, agent_name)
     logger.info(f"Knowledge loaded and added to context for agent {agent_id}")
 
     return {"values": {"context": context}}

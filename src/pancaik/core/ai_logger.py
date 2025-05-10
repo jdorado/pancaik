@@ -17,10 +17,10 @@ from pancaik.core.ai_logger import ai_logger
 
 # Get required IDs from data_store
 agent_id = data_store.get("agent_id")
-owner_id = data_store.get("config", {}).get("owner_id")
+account_id = data_store.get("config", {}).get("account_id")
 agent_name = data_store.get("config", {}).get("name")
 
-ai_logger.thinking("Starting analysis...", agent_id, owner_id, agent_name)
+ai_logger.thinking("Starting analysis...", agent_id, account_id, agent_name)
 ```
 """
 
@@ -66,7 +66,7 @@ class AILogger:
 
                     self._collection = self.db["ai_thoughts"]
                     # Create indexes for better query performance
-                    await self._collection.create_index([("timestamp", -1), ("agent_id", 1), ("account_holder_id", 1)])
+                    await self._collection.create_index([("timestamp", -1), ("agent_id", 1), ("account_id", 1)])
 
                     # Start the cleanup task
                     if self._cleanup_task is None:
@@ -105,13 +105,13 @@ class AILogger:
         assert days > 0, "Retention period must be positive"
         self._retention_days = days
 
-    def thinking(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
+    def thinking(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI thinking message.
 
         Args:
             message: The thinking process message
             agent_id: ID of the agent
-            owner_id: ID of the owner
+            account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
@@ -119,7 +119,7 @@ class AILogger:
             "timestamp": datetime.now(timezone.utc),
             "message": message,
             "agent_id": agent_id,
-            "owner_id": owner_id,
+            "account_id": account_id,
             "type": "thinking",
             "agent_name": agent_name,
         }
@@ -130,13 +130,13 @@ class AILogger:
         if len(self._buffer) >= self._max_buffer_size:
             asyncio.create_task(self.flush())
 
-    def action(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
+    def action(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI action message.
 
         Args:
             message: The action being taken
             agent_id: ID of the agent
-            owner_id: ID of the owner
+            account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
@@ -144,7 +144,7 @@ class AILogger:
             "timestamp": datetime.now(timezone.utc),
             "message": message,
             "agent_id": agent_id,
-            "owner_id": owner_id,
+            "account_id": account_id,
             "type": "action",
             "agent_name": agent_name,
         }
@@ -155,13 +155,13 @@ class AILogger:
         if len(self._buffer) >= self._max_buffer_size:
             asyncio.create_task(self.flush())
 
-    def result(self, message: str, agent_id: str, owner_id: str, agent_name: Optional[str] = None) -> None:
+    def result(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI result message.
 
         Args:
             message: The result or conclusion
             agent_id: ID of the agent
-            owner_id: ID of the owner
+            account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
         # Add to buffer
@@ -169,7 +169,7 @@ class AILogger:
             "timestamp": datetime.now(timezone.utc),
             "message": message,
             "agent_id": agent_id,
-            "owner_id": owner_id,
+            "account_id": account_id,
             "type": "result",
             "agent_name": agent_name,
         }

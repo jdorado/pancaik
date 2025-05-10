@@ -31,14 +31,14 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
     assert data_store, "Data store must be provided"
 
     agent_id = data_store.get("agent_id")
-    owner_id = data_store.get("owner_id")
+    account_id = data_store.get("account_id")
     config = data_store.get("config", {})
     agent_name = config.get("name")
-    assert owner_id, "owner_id must be provided in data_store config"
+    assert account_id, "account_id must be provided in data_store config"
 
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
-    ai_logger.thinking(f"Starting research on: {research_prompt[:100]}...", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+    ai_logger.thinking(f"Starting research on: {research_prompt[:100]}...", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
 
     # Format the prompt using XML style with nested context
     prompt_data = {
@@ -49,13 +49,13 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
     }
     prompt = get_prompt(prompt_data)
 
-    ai_logger.action(f"Querying Perplexity with formatted prompt", agent_id=agent_id, owner_id=owner_id, agent_name=agent_name)
+    ai_logger.action(f"Querying Perplexity with formatted prompt", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
     research_result = await get_completion(prompt=prompt, model_id=research_model)
 
     ai_logger.result(
         f"Research completed successfully. Generated {len(research_result)} characters of insights",
         agent_id=agent_id,
-        owner_id=owner_id,
+        account_id=account_id,
         agent_name=agent_name,
     )
 

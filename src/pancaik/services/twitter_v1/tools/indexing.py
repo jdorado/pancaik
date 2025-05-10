@@ -10,8 +10,8 @@ from typing import Any, Dict
 
 from ....core.config import get_config, logger
 from ....tools.base import tool
-from .. import client
 from ..handlers import TwitterHandler
+
 
 @tool
 async def index_tweets(data_store: Dict[str, Any]):

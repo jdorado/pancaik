@@ -35,11 +35,13 @@ class Agent:
 
         other_config = {
             "ai_models": {
+                "default": "x-ai/grok-3-mini-beta",
                 "research-mini": "x-ai/grok-3-mini-beta",
                 "composing": "anthropic/claude-3.7-sonnet",
                 "analyzing": "o3-mini",
                 "research": "perplexity/llama-3.1-sonar-large-128k-online",
-            }
+            },
+            "account_id": config.get("account_id", config.get("owner_id")),
         }
         # Initialize data stores - agent level uses uppercase, tool level uses lowercase
         self.data_store: Dict[str, Any] = {
@@ -52,7 +54,6 @@ class Agent:
         # Load configuration and ensure datetime values are UTC-aware
         self.config = self._ensure_utc_datetimes(config.copy())
         self.config.update(other_config)
-        self.data_store["owner_id"] = self.config.get("account_holder_id", self.config.get("owner_id"))
 
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
 
@@ -419,16 +420,16 @@ class Agent:
 
         assert parent_tool is not None, f"No tool found with instance_id {step_id} in parent agent {self.id}"
 
-        # Get account_holder_id - either from our config or use our id if we're the root account holder
-        account_holder_id = self.config.get("account_holder_id", self.config.get("owner_id"))
-        assert account_holder_id is not None, "Failed to determine account_holder_id for sub-agent"
+        # Get account_id - either from our config or use our id if we're the root account holder
+        account_id = self.config.get("account_id")
+        assert account_id is not None, "Failed to determine account_id for sub-agent"
 
         # Create base config overrides with essential fields
         base_overrides = {
             "owner_id": self.id,  # This agent owns its sub-agents
             "step_id": step_id,
             "required_agent": required_agent,
-            "account_holder_id": account_holder_id,  # Propagate account holder down the hierarchy
+            "account_id": account_id,  # Propagate account holder down the hierarchy
         }
 
         # Get the base configuration without instantiating an agent
