@@ -4,7 +4,6 @@ Twitter publishing tools for agents.
 This module provides tools for composing and publishing tweets.
 """
 
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ...core.ai_logger import ai_logger
@@ -94,4 +93,3 @@ async def twitter_publish_post(
     ai_logger.result(f"Successfully published tweet {tweet['id']}", agent_id, account_id, agent_name)
     logger.info(f"Successfully published tweet {tweet['id']}")
     return result
-

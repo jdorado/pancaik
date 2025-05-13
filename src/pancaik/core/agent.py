@@ -111,7 +111,7 @@ class Agent:
         """
         # Extract phase from kwargs if present
         phase = kwargs.pop("_phase", "unknown")
-        
+
         # Handle pipeline step configuration
         if isinstance(tool_id, dict):
             step = tool_id
@@ -150,8 +150,7 @@ class Agent:
         # Get all parameters except data_store
         all_params = [param for param in sig.parameters.keys() if param != "data_store"]
         required_params = [
-            param_name for param_name, param in sig.parameters.items() 
-            if param.default == param.empty and param_name != "data_store"
+            param_name for param_name, param in sig.parameters.items() if param.default == param.empty and param_name != "data_store"
         ]
 
         # Handle all parameters in a single pass
@@ -290,19 +289,19 @@ class Agent:
                     "key": key,
                     "value": output_data["value"],
                     "tool_id": output_data["tool_id"],
-                    "phase": output_data.get("phase", "unknown")
+                    "phase": output_data.get("phase", "unknown"),
                 }
                 for key, output_data in self.data_store["Outputs"].items()
                 if output_data.get("phase") == "outputs"
             }
-            
+
             if outputs_to_save:
                 logger.info(f"Agent {self.id}: Saving {len(outputs_to_save)} outputs to database (outputs phase only)")
                 try:
                     # Save outputs to database
                     saved = await AgentHandler.save_agent_outputs(self.id, outputs_to_save)
                     logger.info(f"Agent {self.id}: Successfully saved {saved} outputs to database")
-                    
+
                     # Validate outputs were saved
                     assert saved == len(outputs_to_save), f"Expected to save {len(outputs_to_save)} outputs, but saved {saved}"
                 except Exception as e:

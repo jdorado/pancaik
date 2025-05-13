@@ -328,32 +328,27 @@ class AgentHandler:
         assert isinstance(agent_id, str), "Agent id must be a string"
         assert isinstance(outputs, dict), "Outputs must be a dictionary"
         assert all(isinstance(v, dict) for v in outputs.values()), "Each output must be a dictionary"
-        
+
         if not outputs:
             return 0
-            
+
         # Get outputs collection
         db = get_config("db")
         assert db is not None, "Database must be initialized"
         collection = db.agent_outputs
-        
+
         # Prepare outputs for insertion
         now = datetime.now(timezone.utc)
         outputs_to_insert = []
-        
+
         for key, output_data in outputs.items():
             # Ensure all outputs have required fields
             assert "value" in output_data, f"Output {key} must have a 'value' field"
-            
+
             # Create document without MongoDB _id (let MongoDB generate it)
-            output_doc = {
-                "agent_id": agent_id,
-                "key": key,
-                "created_at": now,
-                **output_data
-            }
+            output_doc = {"agent_id": agent_id, "key": key, "created_at": now, **output_data}
             outputs_to_insert.append(output_doc)
-        
+
         try:
             # Insert outputs
             if outputs_to_insert:

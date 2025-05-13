@@ -35,12 +35,12 @@ def tool(*args, agents: Optional[List[str]] = None) -> Callable:
                 # Log error with AI logger if we have agent context
                 if agent_id and account_id:
                     ai_logger.error(
-                        f"Tool execution failed: [{func.__name__}] {str(e)}", 
+                        f"Tool execution failed: [{func.__name__}] {str(e)}",
                         agent_id=agent_id,
                         account_id=account_id,
-                        agent_name=agent_name
+                        agent_name=agent_name,
                     )
-                
+
                 # Modify the error message to include the tool name
                 e.args = (f"[{func.__name__}] {str(e)}", *e.args[1:])
                 raise

@@ -198,7 +198,7 @@ class AILogger:
             "account_id": account_id,
             "type": "error",
             "agent_name": agent_name,
-            "is_user_facing": True
+            "is_user_facing": True,
         }
 
         self._buffer.append(log_entry)

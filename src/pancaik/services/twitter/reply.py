@@ -111,7 +111,9 @@ async def twitter_reply(
     result = await collection.update_one({"_id": reply_to_id}, {"$push": {"replied_by": username}})
 
     # 4. Index the reply tweet
-    index_result = await indexing.twitter_index_by_id(twitter_connection=twitter_connection, tweet_id=reply_tweet["id"], data_store=data_store)
+    index_result = await indexing.twitter_index_by_id(
+        twitter_connection=twitter_connection, tweet_id=reply_tweet["id"], data_store=data_store
+    )
 
     # Postcondition - ensure we have the reply results
     result = {
