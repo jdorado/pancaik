@@ -32,7 +32,7 @@ async def custom_webhook(
         timeout: Request timeout in seconds (default: 30)
 
     Returns:
-        Dictionary with webhook operation results
+        Dictionary with webhook operation results including context and output values
 
     Raises:
         WebhookError: If the webhook request fails
@@ -67,11 +67,22 @@ async def custom_webhook(
                 ai_logger.result(
                     f"Webhook request successful with status {status_code}", agent_id=agent_id, account_id=account_id, agent_name=agent_name
                 )
+                
+                # Create context and output records
+                output_record = {
+                    "webhook_response": response_data,
+                    "summary": f"Webhook sent successfully to {webhook_url}",
+                    "sent_payload": output
+                }
+
+                # Postconditions
+                assert "summary" in output_record, "Output must contain summary"
+
                 return {
                     "status": "success",
-                    "status_code": status_code,
-                    "response": response_data,
-                    "values": {"webhook_status": "success", "webhook_response": response_data, "webhook_url": webhook_url},
+                    "values": {
+                        "output": output_record
+                    }
                 }
 
             error_msg = f"Webhook request failed with status {status_code}: {response_data}"

@@ -62,7 +62,6 @@ async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> D
     parsed_response = extract_json_content(response) or {}
 
     context = {"llm_processed": parsed_response}
-    output = {"summary": f"LLM processed '{param1}' {param2} times"}
 
     # Postconditions (Design by Contract)
     assert "llm_processed" in context, "Context must contain 'llm_processed' key"
@@ -73,6 +72,6 @@ async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> D
         "status": "success",
         "values": {
             "context": context,
-            "output": output,
+            "output": context,
         },
     }

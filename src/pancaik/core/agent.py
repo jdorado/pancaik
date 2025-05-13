@@ -148,35 +148,25 @@ class Agent:
         if "data_store" in sig.parameters:
             params["data_store"] = self.data_store
 
-        # Handle required parameters
+        # Get all parameters except data_store
+        all_params = [param for param in sig.parameters.keys() if param != "data_store"]
         required_params = [
-            param_name for param_name, param in sig.parameters.items() if param.default == param.empty and param_name != "data_store"
+            param_name for param_name, param in sig.parameters.items() 
+            if param.default == param.empty and param_name != "data_store"
         ]
 
-        for param in required_params:
-            # 1. Check kwargs
+        # Handle all parameters in a single pass
+        for param in all_params:
+            # Check sources in order of precedence
             if param in kwargs:
                 params[param] = kwargs[param]
-            # 2. Check outputs (tool-level, lowercase)
             elif param in self.data_store["outputs"]:
                 params[param] = self.data_store["outputs"][param]
-            # 3. Check context (tool-level, lowercase)
             elif param in self.data_store["context"]:
                 params[param] = self.data_store["context"][param]
-            else:
-                # Postcondition: param must be found in one of the above
+            elif param in required_params:
+                # Postcondition: required parameters must be found
                 assert False, f"Required parameter '{param}' not found in kwargs, outputs, or context for tool {tool_id}"
-
-        # Handle optional parameters
-        optional_params = [param for param in sig.parameters.keys() if param not in required_params and param != "data_store"]
-
-        for param in optional_params:
-            if param in kwargs:
-                params[param] = kwargs[param]
-            elif param in self.data_store:
-                params[param] = self.data_store[param]
-            elif param in self.data_store.get(tool_id, {}):
-                params[param] = self.data_store[tool_id][param]
 
         # Execute the tool
         result = await method(**params)
@@ -201,7 +191,6 @@ class Agent:
                         # Store with metadata in agent-level Context
                         self.data_store["Context"][final_key] = {
                             "value": value,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "tool_id": tool_id,
                         }
                         # Update tool-level context
@@ -214,7 +203,6 @@ class Agent:
                         self.data_store["Outputs"][key] = {
                             "key": key,
                             "value": value,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "tool_id": tool_id,
                             "phase": phase,
                         }

@@ -4,4 +4,4 @@ This package provides Twitter integration tools for agents.
 """
 
 # Import tools to ensure they are registered
-from . import indexing, mentions, posts, reply
+from . import indexing, mentions, posts, reply, publishing

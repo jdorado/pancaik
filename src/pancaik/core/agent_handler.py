@@ -344,7 +344,6 @@ class AgentHandler:
         for key, output_data in outputs.items():
             # Ensure all outputs have required fields
             assert "value" in output_data, f"Output {key} must have a 'value' field"
-            assert "timestamp" in output_data, f"Output {key} must have a 'timestamp' field"
             
             # Create document without MongoDB _id (let MongoDB generate it)
             output_doc = {
