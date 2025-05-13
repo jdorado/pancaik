@@ -3,6 +3,7 @@
 - Use ai_logger.thinking() for initial analysis and planning
 - Use ai_logger.action() for significant operations being performed
 - Use ai_logger.result() for outcomes and conclusions
+- Use ai_logger.error() for user-facing errors that should be displayed/handled
 - Keep standard logger.info/error for system-level logging
 - AI logs should tell a story of the tool's thought process
 - Focus on the main action/objective of the function, it's a narrative
@@ -172,6 +173,32 @@ class AILogger:
             "account_id": account_id,
             "type": "result",
             "agent_name": agent_name,
+        }
+
+        self._buffer.append(log_entry)
+
+        # If buffer is full, schedule a write
+        if len(self._buffer) >= self._max_buffer_size:
+            asyncio.create_task(self.flush())
+
+    def error(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
+        """Log an AI error message that should be shown to users.
+
+        Args:
+            message: The user-facing error message
+            agent_id: ID of the agent
+            account_id: ID of the owner
+            agent_name: Optional human-readable name of the agent
+        """
+        # Add to buffer
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc),
+            "message": message,
+            "agent_id": agent_id,
+            "account_id": account_id,
+            "type": "error",
+            "agent_name": agent_name,
+            "is_user_facing": True
         }
 
         self._buffer.append(log_entry)

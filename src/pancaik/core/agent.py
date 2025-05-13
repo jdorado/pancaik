@@ -33,7 +33,18 @@ class Agent:
         # Precondition: config must be a dictionary
         assert isinstance(config, dict), "Config must be a dictionary"
 
-        other_config = {
+        # Load configuration and ensure datetime values are UTC-aware
+        config["account_id"] = config.get("account_id", config.get("owner_id"))
+        self.config = self._ensure_utc_datetimes(config.copy())
+
+        # Initialize data stores - agent level uses uppercase, tool level uses lowercase
+        self.data_store: Dict[str, Any] = {
+            "config": config,
+            "agent_id": self.id,
+            "Context": {},  # Agent-level context with metadata
+            "Outputs": {},  # Agent-level outputs with metadata
+            "context": {},  # Tool-level simplified context
+            "outputs": {},  # Tool-level simplified outputs
             "ai_models": {
                 "default": "x-ai/grok-3-mini-beta",
                 "composing": "anthropic/claude-3.7-sonnet",
@@ -41,19 +52,7 @@ class Agent:
                 "research-mini": "x-ai/grok-3-mini-beta",
                 "analyzing": "o3-mini",
             },
-            "account_id": config.get("account_id", config.get("owner_id")),
         }
-        # Initialize data stores - agent level uses uppercase, tool level uses lowercase
-        self.data_store: Dict[str, Any] = {
-            "Context": {},  # Agent-level context with metadata
-            "Outputs": {},  # Agent-level outputs with metadata
-            "context": {},  # Tool-level simplified context
-            "outputs": {},  # Tool-level simplified outputs
-        }
-
-        # Load configuration and ensure datetime values are UTC-aware
-        self.config = self._ensure_utc_datetimes(config.copy())
-        self.config.update(other_config)
 
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
 
@@ -164,6 +163,10 @@ class Agent:
                 params[param] = self.data_store["outputs"][param]
             elif param in self.data_store["context"]:
                 params[param] = self.data_store["context"][param]
+            elif param in self.data_store:
+                params[param] = self.data_store[param]
+            elif param in self.config:
+                params[param] = self.config[param]
             elif param in required_params:
                 # Postcondition: required parameters must be found
                 assert False, f"Required parameter '{param}' not found in kwargs, outputs, or context for tool {tool_id}"
@@ -247,8 +250,6 @@ class Agent:
             Result of the execution (data_store)
         """
         # Initialize/update data store
-        self.data_store["config"] = self.config
-        self.data_store["agent_id"] = self.id
         self.data_store.update(kwargs)
 
         # Validate data store initialization

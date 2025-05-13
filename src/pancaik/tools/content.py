@@ -32,7 +32,7 @@ async def text_composer(
     agent_name = config.get("name")
     account_id = config.get("account_id")
 
-    logger.info(f"Running text_composer for agent {agent_id} ({agent_name}) with content_prompt: {content_prompt}")
+    logger.info(f"Running text_composer for agent {agent_id} ({agent_name}) with content_prompt")
 
     # Prepare context for prompt, extracting and removing topic_selection if present
     context = dict(data_store.get("context", {}))
