@@ -311,3 +311,58 @@ class AgentHandler:
 
         # Create compound unique index
         await collection.create_index([("owner_id", 1), ("step_id", 1), ("required_agent", 1)], unique=True, background=True)
+
+    @classmethod
+    async def save_agent_outputs(cls, agent_id: str, outputs: Dict[str, Dict[str, Any]]) -> int:
+        """
+        Save agent outputs to the database.
+
+        Args:
+            agent_id: The ID of the agent
+            outputs: Dictionary mapping output keys to output data with metadata
+
+        Returns:
+            int: Number of outputs successfully saved
+        """
+        # Preconditions
+        assert isinstance(agent_id, str), "Agent id must be a string"
+        assert isinstance(outputs, dict), "Outputs must be a dictionary"
+        assert all(isinstance(v, dict) for v in outputs.values()), "Each output must be a dictionary"
+        
+        if not outputs:
+            return 0
+            
+        # Get outputs collection
+        db = get_config("db")
+        assert db is not None, "Database must be initialized"
+        collection = db.agent_outputs
+        
+        # Prepare outputs for insertion
+        now = datetime.now(timezone.utc)
+        outputs_to_insert = []
+        
+        for key, output_data in outputs.items():
+            # Ensure all outputs have required fields
+            assert "value" in output_data, f"Output {key} must have a 'value' field"
+            assert "timestamp" in output_data, f"Output {key} must have a 'timestamp' field"
+            
+            # Create document without MongoDB _id (let MongoDB generate it)
+            output_doc = {
+                "agent_id": agent_id,
+                "key": key,
+                "created_at": now,
+                **output_data
+            }
+            outputs_to_insert.append(output_doc)
+        
+        try:
+            # Insert outputs
+            if outputs_to_insert:
+                result = await collection.insert_many(outputs_to_insert)
+                # Postcondition: All outputs should be inserted
+                assert len(result.inserted_ids) == len(outputs_to_insert), "Not all outputs were inserted"
+                return len(result.inserted_ids)
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to save outputs for agent {agent_id}: {str(e)}")
+            return 0

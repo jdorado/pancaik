@@ -47,9 +47,9 @@ async def text_composer(
 
     # --- Tool logic: LLM prompt for composing text ---
     if topic_selection is not None:
-        task = "Compose a text item based on the provided content_prompt and context. If topic_selection is present, follow it strictly."
+        task = "Compose a text item based on the following instructions and adhere to the context. If topic_selection is present, follow it strictly."
     else:
-        task = "Compose a text item based on the provided content_prompt and context."
+        task = "Compose a text item based on the following instructions and adhere strictly to the context."
     prompt_data = {
         "task": task,
         "content_prompt": content_prompt,
@@ -64,6 +64,14 @@ async def text_composer(
     response = await get_completion(prompt=prompt, model_id=model_id)
     context = {"text_content": response}
     output = context
+
+    # AI log: result
+    ai_logger.result(
+        f"Successfully composed text content of length {len(response)} characters",
+        agent_id,
+        account_id,
+        agent_name,
+    )
 
     return {
         "status": "success",

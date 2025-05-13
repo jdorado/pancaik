@@ -31,8 +31,8 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
     assert data_store, "Data store must be provided"
 
     agent_id = data_store.get("agent_id")
-    account_id = data_store.get("account_id")
     config = data_store.get("config", {})
+    account_id = config.get("account_id")
     agent_name = config.get("name")
     assert account_id, "account_id must be provided in data_store config"
 

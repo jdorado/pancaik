@@ -110,6 +110,9 @@ class Agent:
         Returns:
             Result of the tool execution
         """
+        # Extract phase from kwargs if present
+        phase = kwargs.pop("_phase", "unknown")
+        
         # Handle pipeline step configuration
         if isinstance(tool_id, dict):
             step = tool_id
@@ -151,18 +154,18 @@ class Agent:
         ]
 
         for param in required_params:
-            # Check direct state
+            # 1. Check kwargs
             if param in kwargs:
                 params[param] = kwargs[param]
-            elif param in self.data_store:
-                params[param] = self.data_store[param]
+            # 2. Check outputs (tool-level, lowercase)
+            elif param in self.data_store["outputs"]:
+                params[param] = self.data_store["outputs"][param]
+            # 3. Check context (tool-level, lowercase)
+            elif param in self.data_store["context"]:
+                params[param] = self.data_store["context"][param]
             else:
-                # Check nested state
-                name_state = self.data_store.get(tool_id, {})
-                if param in name_state:
-                    params[param] = name_state[param]
-                else:
-                    raise ValueError(f"Required parameter '{param}' not found for tool {tool_id}")
+                # Postcondition: param must be found in one of the above
+                assert False, f"Required parameter '{param}' not found in kwargs, outputs, or context for tool {tool_id}"
 
         # Handle optional parameters
         optional_params = [param for param in sig.parameters.keys() if param not in required_params and param != "data_store"]
@@ -209,9 +212,11 @@ class Agent:
                     for key, value in values["output"].items():
                         # Store with metadata in agent-level Outputs
                         self.data_store["Outputs"][key] = {
+                            "key": key,
                             "value": value,
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "tool_id": tool_id,
+                            "phase": phase,
                         }
                         # Update tool-level outputs
                         self.data_store["outputs"][key] = value
@@ -241,7 +246,7 @@ class Agent:
 
         return result
 
-    async def run(self, **kwargs):
+    async def run(self, simulate: bool = False, **kwargs):
         """
         Execute the agent's pipeline in two phases:
         1. Execute tools from config.tools array
@@ -273,14 +278,48 @@ class Agent:
                     logger.info(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
                     break
 
+        # If simulate is True, don't process outputs
+        if simulate:
+            return self.data_store
+
         # 2. Process outputs
         outputs_pipeline = self.config.get("outputs", [])
         if outputs_pipeline:
             assert isinstance(outputs_pipeline, list), "Pipeline from config.outputs must be a list"
             for output in outputs_pipeline:
                 logger.info(f"Agent {self.id}: Starting execution of output step '{output['id']}'")
-                await self.run_tool(output, **kwargs)
+                # Pass outputs phase to run_tool
+                await self.run_tool(output, _phase="outputs", **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of output step '{output['id']}'")
+
+        # 3. Save outputs to database
+        if self.data_store["Outputs"]:
+            # Filter outputs to only save those generated in the outputs phase
+            outputs_to_save = {
+                key: {
+                    "agent_id": self.id,
+                    "key": key,
+                    "value": output_data["value"],
+                    "tool_id": output_data["tool_id"],
+                    "phase": output_data.get("phase", "unknown")
+                }
+                for key, output_data in self.data_store["Outputs"].items()
+                if output_data.get("phase") == "outputs"
+            }
+            
+            if outputs_to_save:
+                logger.info(f"Agent {self.id}: Saving {len(outputs_to_save)} outputs to database (outputs phase only)")
+                try:
+                    # Save outputs to database
+                    saved = await AgentHandler.save_agent_outputs(self.id, outputs_to_save)
+                    logger.info(f"Agent {self.id}: Successfully saved {saved} outputs to database")
+                    
+                    # Validate outputs were saved
+                    assert saved == len(outputs_to_save), f"Expected to save {len(outputs_to_save)} outputs, but saved {saved}"
+                except Exception as e:
+                    logger.error(f"Agent {self.id}: Failed to save outputs to database: {str(e)}")
+            else:
+                logger.info(f"Agent {self.id}: No outputs from outputs phase to save to database")
 
         return self.data_store
 
