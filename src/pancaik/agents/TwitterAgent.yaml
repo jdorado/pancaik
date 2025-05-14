@@ -1,3 +1,4 @@
+name: "Twitter Agent"
 ai_models:
   composing: anthropic/claude-3.7-sonnet
   analyzing: o3-mini
@@ -41,6 +42,26 @@ style:
     Be helpful when asked and be agreeable and compliant
     Don't ask questions
     Be warm and if someone makes a reasonable request, try to accommodate them
+daily_research_topics:
+twitter:
+  is_premium: false
+  single_tweet_chars_limit: 220
+  max_thread_replies: 3  # Maximum number of times the agent will reply in a single conversation thread
+  max_mentioned_users_to_include_in_reply: 2  # Maximum number of @handles to include when replying to a tweet with multiple mentions
+  default_replies_min_hours_between: 72  # Minimum number of hours between replies to the same user
+  default_quotes_min_hours_between: 72  # Minimum number of hours between quotes to the same user
+  default_retweets_min_hours_between: 72  # Minimum number of hours between retweets to the same user
+  credentials:
+      username: ""
+      user_id: ""
+      password: ""
+      email: ""
+      consumer_key: ""
+      consumer_secret: ""
+      access_token: ""
+      access_token_secret: ""
+      bearer_token: ""
+  followed_users:
 tasks:
   index_followed_users:
     scheduler:
@@ -49,6 +70,24 @@ tasks:
         expression: "*/5 * * * *"  # Runs every 5 minutes
     pipeline:
       - index_tweets
+  index_own_mentions:
+    scheduler:
+      type: "cron"
+      params:
+        expression: "*/5 * * * *"  # Runs every 5 minutes
+    pipeline:
+      - index_mentions
+  reply_own_mentions:
+    scheduler:
+      type: "cron"
+      params:
+        expression: "*/5 * * * *"  # Runs every 5 minutes
+    pipeline:
+      - select_mention_to_reply
+      - compose_tweet_from_context
+      - publish_tweet
+      - mark_mention_as_reviewed
+      - index_tweet_by_id
   post_from_followed_users:
     scheduler:
       type: "random_interval"
