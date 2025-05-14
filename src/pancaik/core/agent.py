@@ -164,8 +164,6 @@ class Agent:
                 params[param] = self.data_store["context"][param]
             elif param in self.data_store:
                 params[param] = self.data_store[param]
-            elif param in self.config:
-                params[param] = self.config[param]
             elif param in required_params:
                 # Postcondition: required parameters must be found
                 assert False, f"Required parameter '{param}' not found in kwargs, outputs, or context for tool {tool_id}"

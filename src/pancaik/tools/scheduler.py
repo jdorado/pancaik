@@ -149,9 +149,13 @@ async def scheduler(
 
             calculated_next_run = reference_time + timedelta(minutes=total_minutes * intervals_passed)
 
-            # Ensure next_run is in the future
-            while calculated_next_run <= now:
-                calculated_next_run += timedelta(minutes=total_minutes)
+            # If this is the first run and calculated time is in the past, allow it to run now
+            if last_run_dt is None and calculated_next_run <= now:
+                calculated_next_run = now
+            # Otherwise ensure next_run is in the future by adding intervals
+            elif calculated_next_run <= now:
+                while calculated_next_run <= now:
+                    calculated_next_run += timedelta(minutes=total_minutes)
 
     elif scheduler_type == "random-interval":
         assert "minMinutes" in scheduler_params, "Random interval requires minimum minutes"
@@ -169,9 +173,12 @@ async def scheduler(
         random_minutes = random.randint(min_minutes, max_minutes)
         calculated_next_run = reference_time + timedelta(minutes=random_minutes)
 
+        # If this is the first run and calculated time is in the past, run now
+        if last_run_dt is None and calculated_next_run <= now:
+            calculated_next_run = now
         # If next_run is in the past (could happen if last_run is old),
         # calculate from current time instead
-        if calculated_next_run <= now:
+        elif calculated_next_run <= now:
             calculated_next_run = now + timedelta(minutes=random_minutes)
 
     else:
@@ -180,7 +187,7 @@ async def scheduler(
     # For non-one-time schedules that have a next_run, update with scheduled status
     if calculated_next_run is not None:
         assert calculated_next_run.tzinfo is not None, "next_run must be timezone-aware"
-        assert calculated_next_run > now, "next_run must be in the future"
+        assert calculated_next_run >= now, "next_run must be in the future"
 
         update_data = {
             "next_run": calculated_next_run,
