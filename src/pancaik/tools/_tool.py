@@ -21,7 +21,7 @@ from .base import tool
 
 
 # Example: Register this tool for a specific agent by passing agents=["agent_example"]
-@tool(agents=["agent_example"])
+@tool() # leave like this no extras
 async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> Dict[str, Any]:
     """
     Sample tool that demonstrates the required structure for Pancaik tools, including both context and output.

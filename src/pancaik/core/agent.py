@@ -35,6 +35,14 @@ class Agent:
 
         # Load configuration and ensure datetime values are UTC-aware
         config["account_id"] = config.get("account_id", config.get("owner_id"))
+        config["ai_models"] = {
+                "default": "x-ai/grok-3-mini-beta",
+                "composing": "anthropic/claude-3.7-sonnet",
+                "research": "perplexity/llama-3.1-sonar-large-128k-online",
+                "research-mini": "x-ai/grok-3-mini-beta",
+                "analyzing": "openai/o3-mini-high",
+                "mini": "openai/gpt-4o-mini",
+            }
         self.config = self._ensure_utc_datetimes(config.copy())
 
         # Initialize data stores - using lowercase with metadata
@@ -43,13 +51,6 @@ class Agent:
             "agent_id": self.id,
             "context": {},  # Context with metadata
             "outputs": {},  # Outputs with metadata
-            "ai_models": {
-                "default": "x-ai/grok-3-mini-beta",
-                "composing": "anthropic/claude-3.7-sonnet",
-                "research": "perplexity/llama-3.1-sonar-large-128k-online",
-                "research-mini": "x-ai/grok-3-mini-beta",
-                "analyzing": "o3-mini",
-            },
         }
 
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
@@ -189,8 +190,8 @@ class Agent:
         if "data_store" in sig.parameters:
             # Create flattened version of data store for tool
             flattened_data_store = self.data_store.copy()
-            flattened_data_store["context"] = self._flatten_metadata_dict(self.data_store["context"])
-            flattened_data_store["outputs"] = self._flatten_metadata_dict(self.data_store["outputs"])
+            flattened_data_store["context"] = self._flatten_metadata_dict(self.data_store["context"]).copy()
+            flattened_data_store["outputs"] = self._flatten_metadata_dict(self.data_store["outputs"]).copy()
             params["data_store"] = flattened_data_store
 
         # Get all parameters except data_store
@@ -201,18 +202,25 @@ class Agent:
 
         # Handle all parameters in a single pass
         for param in all_params:
-            # Check sources in order of precedence
+            # Check kwargs first - highest precedence
             if param in kwargs:
                 params[param] = kwargs[param]
+            # Then check outputs
             elif param in self.data_store["outputs"]:
                 params[param] = self.data_store["outputs"][param].get("value")
+            # Then check context
             elif param in self.data_store["context"]:
                 params[param] = self.data_store["context"][param].get("value")
+            # Finally check data_store root
             elif param in self.data_store:
                 params[param] = self.data_store[param]
             elif param in required_params:
                 # Postcondition: required parameters must be found
                 assert False, f"Required parameter '{param}' not found in kwargs, outputs, or context for tool {tool_id}"
+
+            # Remove from flattened context if exists to avoid duplication
+            if "data_store" in params and param in params["data_store"]["context"]:
+                del params["data_store"]["context"][param]
 
         # Execute the tool
         result = await method(**params)
@@ -586,5 +594,5 @@ class Agent:
             all_values.append(value_info)
 
         # Sort by creation timestamp
-        all_values.sort(key=lambda x: x["created_at"], reverse=True)
+        all_values.sort(key=lambda x: x["created_at"])
         return all_values

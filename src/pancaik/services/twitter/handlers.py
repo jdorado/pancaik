@@ -71,6 +71,51 @@ class TwitterHandler:
         collection = self.get_collection()
         return await collection.find_one({"_id": tweet_id})
 
+    async def mark_post_interaction(
+        self,
+        post_id: str,
+        username: str,
+        interaction_type: str,
+    ) -> bool:
+        """Mark a post with a specific interaction type in the database.
+        
+        Args:
+            post_id: ID of the post to mark
+            username: Username of the agent marking the post
+            interaction_type: Type of interaction ('ignored', 'replied', 'quoted', 'retweeted')
+            
+        Returns:
+            True if the operation was successful, False otherwise
+        """
+        assert post_id, "Post ID must not be empty"
+        assert username, "Username must not be empty"
+        assert interaction_type in ['ignored', 'replied', 'quoted', 'retweeted'], "Invalid interaction type"
+        
+        collection = self.get_collection()
+        try:
+            now = datetime.utcnow()
+            
+            # Store interaction details in a user-specific field
+            interaction_data = {
+                "type": interaction_type,
+                "timestamp": now
+            }
+            
+            result = await collection.update_one(
+                {"_id": post_id},
+                {
+                    "$push": {"interactions_by": username},
+                    "$set": {
+                        f"interactions.{username}": interaction_data,
+                        f"interactions.{username}_last_at": now,
+                    },
+                },
+            )
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"Error marking post {post_id} with interaction {interaction_type}: {e}")
+            return False
+
     async def search_tweets(self, query: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Search for tweets in the database."""
         assert query, "Query must not be empty"
@@ -148,3 +193,89 @@ class TwitterHandler:
         collection = self.get_users_collection()
         cursor = collection.find({"_id": {"$in": usernames}})
         return await cursor.to_list(length=len(usernames))
+
+    async def get_posts_with_interactions(
+        self,
+        post_ids: List[str],
+        username: str,
+        interaction_types: Optional[List[str]] = None
+    ) -> List[str]:
+        """Get list of post IDs that have been interacted with by a user.
+        
+        Args:
+            post_ids: List of post IDs to check
+            username: Username that performed the interactions
+            interaction_types: Optional list of interaction types to filter by ('ignored', 'replied', 'quoted', 'retweeted')
+                             Note: By default includes ALL interactions including 'ignored' to avoid reanalyzing posts
+            
+        Returns:
+            List of post IDs that have been interacted with (including ignored posts by default)
+        """
+        assert post_ids, "Post IDs must not be empty"
+        assert username, "Username must not be empty"
+        if interaction_types:
+            assert all(t in ['ignored', 'replied', 'quoted', 'retweeted'] for t in interaction_types), "Invalid interaction type"
+        
+        collection = self.get_collection()
+        
+        # Build query to check user-specific interactions
+        query = {
+            "_id": {"$in": post_ids},
+            "interactions_by": username
+        }
+        
+        # Add interaction type filter if specifically requested
+        if interaction_types:
+            query[f"interactions.{username}.type"] = {"$in": interaction_types}
+            
+        cursor = collection.find(query, projection={"_id": 1})
+        results = await cursor.to_list(length=None)
+        return [doc["_id"] for doc in results]
+
+    async def get_last_interactions_by_usernames(
+        self,
+        usernames: List[str],
+        username: str,
+    ) -> Dict[str, datetime]:
+        """Get the last interaction date for each username.
+        
+        Args:
+            usernames: List of usernames to check
+            username: Username that performed the interactions
+            
+        Returns:
+            Dictionary mapping usernames to their last interaction datetime
+            Note: 'ignored' interactions are not counted when calculating last interaction time
+        """
+        assert usernames, "Usernames must not be empty"
+        assert username, "Username must not be empty"
+        
+        collection = self.get_collection()
+        
+        # Build aggregation pipeline to get the latest interaction for each username
+        pipeline = [
+            # Match documents with interactions by our username and from target usernames
+            {"$match": {
+                "interactions_by": username,
+                "username": {"$in": usernames},
+                f"interactions.{username}.type": {"$in": ["replied", "quoted", "retweeted"]}
+            }},
+            # Group by the post author's username and get the latest interaction date
+            {"$group": {
+                "_id": "$username",
+                "last_interaction": {"$max": f"$interactions.{username}_last_at"}
+            }},
+            # Reshape output
+            {"$project": {
+                "_id": 0,
+                "username": "$_id",
+                "last_interaction": 1
+            }}
+        ]
+        
+        # Execute aggregation
+        cursor = collection.aggregate(pipeline)
+        results = await cursor.to_list(length=None)
+        
+        # Convert to dictionary format
+        return {doc["username"]: doc["last_interaction"] for doc in results}

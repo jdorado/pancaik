@@ -2,13 +2,13 @@
 Utility functions for handling prompts and formatting data for AI models.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 0, skip_empty: bool = True) -> str:
     """
     Converts a dictionary of key-value pairs into an XML-style prompt string.
-    Handles nested dictionaries at any level automatically.
+    Handles nested dictionaries and lists at any level automatically.
 
     Args:
         data: Dictionary containing key-value pairs to convert
@@ -23,6 +23,7 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
         Input: {
             'date': '2024-03-21',
             'task': 'Research task',
+            'posts': [1, 2, 3],
             'context': {
                 'research': {
                     'findings': 'Some findings...',
@@ -43,6 +44,20 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
             <task>
             Research task
             </task>
+
+            <posts>
+                <posts_item_1>
+                1
+                </posts_item_1>
+
+                <posts_item_2>
+                2
+                </posts_item_2>
+
+                <posts_item_3>
+                3
+                </posts_item_3>
+            </posts>
 
             <context>
                 <research>
@@ -91,6 +106,24 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
             if nested_xml:  # Only add if there's content
                 lines.append(nested_xml)
                 lines.append("")  # Add blank line after nested content
+        # Handle lists
+        elif isinstance(value, (list, tuple)):
+            if value:  # Only process non-empty lists
+                lines.append(f"{content_indent}<{key}>")
+                for i, item in enumerate(value, 1):
+                    item_tag = f"{key}_item_{i}"
+                    lines.append(f"{' ' * (indent + 8)}<{item_tag}>")
+                    # Convert item to string and handle multi-line values
+                    item_str = str(item).strip()
+                    item_lines = item_str.split("\n")
+                    lines.extend(f"{' ' * (indent + 8)}{line}" for line in item_lines)
+                    lines.append(f"{' ' * (indent + 8)}</{item_tag}>")
+                    lines.append("")  # Add blank line between list items
+                # Remove the last blank line if it exists
+                if lines and not lines[-1]:
+                    lines.pop()
+                lines.append(f"{content_indent}</{key}>")
+                lines.append("")  # Add blank line after list
         else:
             # Convert value to string and handle multi-line values
             value_str = str(value).strip()
