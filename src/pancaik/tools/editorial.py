@@ -32,7 +32,7 @@ async def topic_selector(data_store: Dict[str, Any], selection_guidelines: str) 
     agent_name = config.get("name")
 
     ai_logger.thinking(
-        f"Analyzing context and guidelines for topic selection. Guidelines: {selection_guidelines}", agent_id, account_id, agent_name
+        f"Analyzing context and guidelines for topic selection", agent_id, account_id, agent_name
     )
     logger.info(f"Running topic_selector for agent {agent_id} ({agent_name}) with guidelines: {selection_guidelines}")
 

@@ -12,12 +12,15 @@ from ...core.connections import ConnectionHandler
 from ...tools.base import tool
 from . import client, indexing
 from .client import TwitterClient
-from .handlers import TwitterHandler
 
 
 @tool()
 async def twitter_publish_post(
-    twitter_connection: str, text_content: str = None, data_store: Optional[Dict[str, Any]] = None
+    twitter_connection: str, 
+    text_content: str = None, 
+    data_store: Optional[Dict[str, Any]] = None,
+    selected_tweet: Optional[Dict[str, Any]] = None,
+    interaction_type: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Publish a tweet to Twitter.
@@ -26,13 +29,14 @@ async def twitter_publish_post(
         twitter_connection: Connection ID for Twitter credentials
         text_content: Content for the tweet
         data_store: Optional data store for additional context
+        selected_tweet: Optional dictionary containing tweet data for interactions/replies
+        interaction_type: Optional string specifying type of interaction (e.g. reply, quote, retweet)
 
     Returns:
         Dictionary with publishing operation results
     """
     # Preconditions
-    assert text_content, "Tweet content must be provided"
-    assert len(text_content) <= 280, "Tweet content must not exceed 280 characters"
+    assert text_content or (interaction_type == "repost" and selected_tweet), "Tweet content must be provided unless retweeting"
 
     # Extract AI logging context
     agent_id = data_store.get("agent_id") if data_store else None
@@ -52,44 +56,68 @@ async def twitter_publish_post(
     semaphore = get_config("twitter_semaphore")
     assert semaphore is not None, "Twitter semaphore must be available in config"
 
-    # Initialize handler for database operations
-    handler = TwitterHandler()
+    # Prepare tweet parameters based on interaction type
+    tweet_params = {"text": text_content}
+    
+    if selected_tweet and interaction_type:
+        tweet_id = selected_tweet.get("_id")
+        if interaction_type == "reply":
+            tweet_params["reply_id"] = tweet_id
+        elif interaction_type == "quote":
+            tweet_params["quote_id"] = tweet_id
+        elif interaction_type == "repost":
+            # For repost, we don't need text content
+            tweet_params = {"text": "", "quote_id": tweet_id}
 
     # Publish the tweet
-    ai_logger.action("Publishing tweet.", agent_id, account_id, agent_name)
+    ai_logger.action(
+        f"Publishing tweet{f' as {interaction_type}' if interaction_type else ''}.", 
+        agent_id, account_id, agent_name
+    )
+    
     # Acquire semaphore to respect rate limits
     await semaphore.acquire()
     try:
-        tweet = await twitter.create_tweet(text=text_content)
+        tweet = await twitter.create_tweet(**tweet_params)
     finally:
         # Release the semaphore
         semaphore.release()
 
-    if not tweet or "id" not in tweet:
+    if not tweet:
         logger.error("Failed to publish tweet")
-        ai_logger.result("Failed to publish tweet", agent_id, account_id, agent_name)
-        return {"status": "error", "message": "Failed to publish tweet"}
+        raise Exception("Failed to publish tweet")
+
+    # For retweets, the response format is different
+    if interaction_type == "repost" and "retweet" in tweet:
+        tweet_id = tweet["retweet"]
+    else:
+        if "id" not in tweet:
+            logger.error("Invalid tweet response format")
+            ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
+            return {"status": "error", "message": "Invalid tweet response format"}
+        tweet_id = tweet["id"]
 
     # Index the tweet
     username = twitter.get_username()
-    await indexing.twitter_index_by_id(twitter_connection=twitter_connection, tweet_id=tweet["id"], data_store=data_store)
+    await indexing.twitter_index_by_id(twitter_connection=twitter_connection, tweet_id=tweet_id, data_store=data_store)
 
     # Postcondition - ensure we have the publishing results
     result = {
         "status": "success",
         "values": {
-            "context": {
-                "tweet": text_content,
-            },
             "output": {
                 "tweet": {
                     "text": text_content,
-                    "url": f"https://x.com/{username}/status/{tweet['id']}",
+                    "url": f"https://x.com/{username}/status/{tweet_id}",
+                    "interaction_type": interaction_type if interaction_type else None,
+                    "interaction_with": selected_tweet.get("_id") if selected_tweet else None
                 },
             },
         },
     }
 
-    ai_logger.result(f"Successfully published tweet {tweet['id']}", agent_id, account_id, agent_name)
-    logger.info(f"Successfully published tweet {tweet['id']}")
+    ai_logger.result(
+        f"Successfully published tweet{f' as {interaction_type}' if interaction_type else ''}", 
+        agent_id, account_id, agent_name
+    )
     return result
