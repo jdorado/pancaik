@@ -65,11 +65,9 @@ async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> D
 
     # Postconditions (Design by Contract)
     assert "llm_processed" in context, "Context must contain 'llm_processed' key"
-    assert "summary" in output, "Output must contain 'summary' key"
 
     # Return in the required format for Pancaik tools
     return {
-        "status": "success",
         "values": {
             "context": context,
             "output": context,

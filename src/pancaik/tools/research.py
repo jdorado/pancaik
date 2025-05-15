@@ -58,7 +58,7 @@ async def research_perplexity(research_prompt: str, research_model: str, data_st
         account_id=account_id,
         agent_name=agent_name,
     )
-    context = {"perplexity_research": research_result}
+    context = {"research": research_result}
 
     return {
         "status": "success",

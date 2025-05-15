@@ -19,6 +19,7 @@ from .client import TwitterClient
 from .handlers import TwitterHandler
 
 
+# todo Retire split into two
 @tool()
 async def twitter_reply(
     twitter_connection: str, reply_to_id: str, reply_guidelines: str, data_store: Optional[Dict[str, Any]] = None
