@@ -37,14 +37,12 @@ class Agent:
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         self.config = self._ensure_utc_datetimes(config.copy())
 
-        # Initialize data stores - agent level uses uppercase, tool level uses lowercase
+        # Initialize data stores - using lowercase with metadata
         self.data_store: Dict[str, Any] = {
             "config": config,
             "agent_id": self.id,
-            "Context": {},  # Agent-level context with metadata
-            "Outputs": {},  # Agent-level outputs with metadata
-            "context": {},  # Tool-level simplified context
-            "outputs": {},  # Tool-level simplified outputs
+            "context": {},  # Context with metadata
+            "outputs": {},  # Outputs with metadata
             "ai_models": {
                 "default": "x-ai/grok-3-mini-beta",
                 "composing": "anthropic/claude-3.7-sonnet",
@@ -55,6 +53,37 @@ class Agent:
         }
 
         logger.info(f"Loaded configuration from provided dictionary for agent {self.id}")
+
+    def _flatten_metadata_dict(self, metadata_dict: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """Convert metadata dictionary to flattened values dictionary.
+        
+        Args:
+            metadata_dict: Dictionary with metadata structure {key: {"value": val, ...}}
+            
+        Returns:
+            Flattened dictionary {key: val}
+        """
+        return {k: v.get("value") for k, v in metadata_dict.items()}
+
+    def _add_metadata(self, key: str, value: Any, metadata_dict: Dict[str, Dict[str, Any]], 
+                     tool_id: str | dict, phase: str) -> None:
+        """Add a value with metadata to the specified metadata dictionary.
+        
+        Args:
+            key: Key for the value
+            value: The value to store
+            metadata_dict: Target metadata dictionary
+            tool_id: ID of the tool that generated this value
+            phase: Phase identifier (trigger, tool, or output)
+        """
+        assert phase in ["trigger", "tool", "output"], f"Invalid phase: {phase}"
+        
+        metadata_dict[key] = {
+            "value": value,
+            "tool_id": tool_id,
+            "phase": phase,
+            "created_at": datetime.now(timezone.utc),
+        }
 
     def _ensure_utc_datetimes(self, data: Any) -> Any:
         """Recursively ensure all datetime values in the data structure are UTC-aware.
@@ -97,10 +126,7 @@ class Agent:
         return policy
 
     async def run_tool(self, tool_id: str | dict, **kwargs):
-        """
-        Run a tool with the given tool_id and kwargs. The tool_id can be either:
-        1. A string identifying the tool to run
-        2. A pipeline step configuration dictionary with 'id' and 'params' fields
+        """Run a tool with the given tool_id and kwargs.
 
         Args:
             tool_id: String ID of the tool to run or pipeline step configuration dict
@@ -109,8 +135,18 @@ class Agent:
         Returns:
             Result of the tool execution
         """
-        # Extract phase from kwargs if present
-        phase = kwargs.pop("_phase", "unknown")
+        # Get the current execution phase
+        if kwargs.get("_is_trigger"):
+            phase = "trigger"
+            kwargs.pop("_is_trigger")
+        elif kwargs.get("_is_output"):
+            phase = "output"
+            kwargs.pop("_is_output")
+        else:
+            phase = "tool"
+        
+        # Remove any existing phase info to avoid confusion
+        kwargs.pop("_phase", None)
 
         # Handle pipeline step configuration
         if isinstance(tool_id, dict):
@@ -123,7 +159,22 @@ class Agent:
             kwargs = {**kwargs, **step["params"]}
             tool_id = step["id"]
 
-        # Validate tool_id is a string at this point
+        # Execute the tool and store results
+        result = await self._execute_tool(tool_id, phase, **kwargs)
+        return result
+
+    async def _execute_tool(self, tool_id: str, phase: str, **kwargs):
+        """Execute a tool and process its results.
+        
+        Args:
+            tool_id: String ID of the tool to run
+            phase: Current execution phase
+            **kwargs: Tool parameters
+            
+        Returns:
+            Tool execution result
+        """
+        # Validate tool_id is a string
         assert isinstance(tool_id, str), "tool_id must be a string"
         assert tool_id in _GLOBAL_TOOLS, f"Tool '{tool_id}' not found in registered tools"
 
@@ -134,18 +185,13 @@ class Agent:
         sig = inspect.signature(method)
         params = {}
 
-        # Update tool-level context and outputs from agent-level storage
-        for key, value_dict in self.data_store["Context"].items():
-            if isinstance(value_dict, dict) and "value" in value_dict:
-                self.data_store["context"][key] = value_dict["value"]
-
-        for key, value_dict in self.data_store["Outputs"].items():
-            if isinstance(value_dict, dict) and "value" in value_dict:
-                self.data_store["outputs"][key] = value_dict["value"]
-
         # Add data_store parameter if the method accepts it
         if "data_store" in sig.parameters:
-            params["data_store"] = self.data_store
+            # Create flattened version of data store for tool
+            flattened_data_store = self.data_store.copy()
+            flattened_data_store["context"] = self._flatten_metadata_dict(self.data_store["context"])
+            flattened_data_store["outputs"] = self._flatten_metadata_dict(self.data_store["outputs"])
+            params["data_store"] = flattened_data_store
 
         # Get all parameters except data_store
         all_params = [param for param in sig.parameters.keys() if param != "data_store"]
@@ -159,9 +205,9 @@ class Agent:
             if param in kwargs:
                 params[param] = kwargs[param]
             elif param in self.data_store["outputs"]:
-                params[param] = self.data_store["outputs"][param]
+                params[param] = self.data_store["outputs"][param].get("value")
             elif param in self.data_store["context"]:
-                params[param] = self.data_store["context"][param]
+                params[param] = self.data_store["context"][param].get("value")
             elif param in self.data_store:
                 params[param] = self.data_store[param]
             elif param in required_params:
@@ -170,77 +216,45 @@ class Agent:
 
         # Execute the tool
         result = await method(**params)
+        assert isinstance(result, dict), "Tool must return a dictionary"
 
-        # Update data store with the result
-        if isinstance(result, dict):
-            if "values" in result and isinstance(result["values"], dict):
-                values = result["values"]
+        # Store tool results with proper phase tracking
+        if "values" in result and isinstance(result["values"], dict):
+            values = result["values"]
 
-                # Handle context values - auto-index if key exists
-                if "context" in values and isinstance(values["context"], dict):
-                    for key, value in values["context"].items():
-                        base_key = key
-                        final_key = key
-                        counter = 1
+            # Handle context values
+            if "context" in values and isinstance(values["context"], dict):
+                self._store_values_with_metadata(values["context"], self.data_store["context"], tool_id, phase)
 
-                        # Auto-index if key exists
-                        while final_key in self.data_store["Context"]:
-                            counter += 1
-                            final_key = f"{base_key}_{counter}"
+            # Handle output values
+            if "output" in values and isinstance(values["output"], dict):
+                self._store_values_with_metadata(values["output"], self.data_store["outputs"], tool_id, phase)
 
-                        # Store with metadata in agent-level Context
-                        self.data_store["Context"][final_key] = {
-                            "value": value,
-                            "tool_id": tool_id,
-                        }
-                        # Update tool-level context
-                        self.data_store["context"][final_key] = value
+            # Handle any other values
+            for key, value in values.items():
+                if key not in ["context", "output"]:
+                    self.data_store[key] = value
 
-                # Handle output values
-                if "output" in values and isinstance(values["output"], dict):
-                    for key, value in values["output"].items():
-                        # Store with metadata in agent-level Outputs
-                        self.data_store["Outputs"][key] = {
-                            "key": key,
-                            "value": value,
-                            "tool_id": tool_id,
-                            "phase": phase,
-                        }
-                        # Update tool-level outputs
-                        self.data_store["outputs"][key] = value
-
-                # Handle any other values
-                for key, value in values.items():
-                    if key not in ["context", "output"]:
-                        self.data_store[key] = value
-
-                # Check that all values are properly stored
-                for key in result["values"].keys():
-                    if key == "context":
-                        # Context values are stored in Context
-                        assert all(
-                            k in self.data_store["Context"] for k in result["values"]["context"].keys()
-                        ), "All context values must be added to data_store['Context']"
-                    elif key == "output":
-                        # Output values are stored in Outputs
-                        assert all(
-                            k in self.data_store["Outputs"] for k in result["values"]["output"].keys()
-                        ), "All output values must be added to data_store['Outputs']"
-                    else:
-                        # Other values are stored directly in data_store
-                        assert key in self.data_store, f"Value '{key}' must be added to data_store"
-        else:
-            self.data_store[tool_id] = result
+            # Validate all values were properly stored
+            for key in result["values"].keys():
+                if key == "context":
+                    assert all(k in self.data_store["context"] for k in result["values"]["context"].keys()), \
+                        "All context values must be added to data_store['context']"
+                elif key == "output":
+                    assert all(k in self.data_store["outputs"] for k in result["values"]["output"].keys()), \
+                        "All output values must be added to data_store['outputs']"
+                else:
+                    assert key in self.data_store, f"Value '{key}' must be added to data_store"
 
         return result
 
     async def run(self, simulate: bool = False, **kwargs):
-        """
-        Execute the agent's pipeline in two phases:
+        """Execute the agent's pipeline in two phases:
         1. Execute tools from config.tools array
         2. Publish outputs from config.outputs array
 
         Args:
+            simulate: If True, don't process outputs
             **kwargs: Parameters to pass to the tools
 
         Returns:
@@ -274,12 +288,12 @@ class Agent:
             assert isinstance(outputs_pipeline, list), "Pipeline from config.outputs must be a list"
             for output in outputs_pipeline:
                 logger.info(f"Agent {self.id}: Starting execution of output step '{output['id']}'")
-                # Pass outputs phase to run_tool
-                await self.run_tool(output, _phase="outputs", **kwargs)
+                # Execute output step with output phase
+                await self.run_tool(output, _is_output=True, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of output step '{output['id']}'")
 
         # 3. Save outputs to database
-        if self.data_store["Outputs"]:
+        if self.data_store["outputs"]:
             # Filter outputs to only save those generated in the outputs phase
             outputs_to_save = {
                 key: {
@@ -289,7 +303,7 @@ class Agent:
                     "tool_id": output_data["tool_id"],
                     "phase": output_data.get("phase", "unknown"),
                 }
-                for key, output_data in self.data_store["Outputs"].items()
+                for key, output_data in self.data_store["outputs"].items()
                 if output_data.get("phase") == "outputs"
             }
 
@@ -499,3 +513,78 @@ class Agent:
         await agent.activate()
 
         return sub_agent_id
+
+    def _store_values_with_metadata(self, values: Dict[str, Any], store_dict: Dict[str, Dict[str, Any]], 
+                                  tool_id: str | dict, phase: str = "unknown") -> None:
+        """Store values in the specified store dictionary with metadata, handling key conflicts.
+        
+        Args:
+            values: Dictionary of values to store {key: value}
+            store_dict: Target store dictionary (context or outputs)
+            tool_id: ID of the tool that generated these values
+            phase: Optional phase identifier
+            
+        The method handles historical values by adding indexed postfixes:
+        - Current value: key
+        - Previous values: key_1, key_2, key_3, etc. (higher index = older value)
+        """
+        for key, value in values.items():
+            base_key = key
+            final_key = key
+            
+            # If key exists, shift all existing values with indexed postfixes
+            if final_key in store_dict:
+                # Find all existing keys with this base
+                existing_keys = [k for k in store_dict.keys() 
+                               if k == base_key or (k.startswith(f"{base_key}_") and k[len(base_key)+1:].isdigit())]
+                
+                # Sort by index (base key has no index, others are numbered)
+                existing_keys.sort(key=lambda k: float('inf') if k == base_key 
+                                 else int(k[len(base_key)+1:]))
+                
+                # Shift all values to next index
+                for old_key in reversed(existing_keys):
+                    old_value = store_dict[old_key]
+                    if old_key == base_key:
+                        new_key = f"{base_key}_1"
+                    else:
+                        current_index = int(old_key[len(base_key)+1:])
+                        new_key = f"{base_key}_{current_index + 1}"
+                    
+                    # Store with original metadata
+                    self._add_metadata(new_key, old_value["value"], store_dict, 
+                                    old_value["tool_id"], old_value.get("phase", "unknown"))
+                    
+                    # Clean up old key if it's not the base key (which will be overwritten)
+                    if old_key != base_key:
+                        del store_dict[old_key]
+            
+            # Store new value with metadata
+            self._add_metadata(final_key, value, store_dict, tool_id, phase)
+
+        # Validate all values were stored
+        assert all(k in store_dict for k in values.keys()), "All values must be added to store dictionary"
+
+    def get_ordered_outputs(self) -> List[Dict[str, Any]]:
+        """Get all outputs in order of creation.
+        
+        Returns:
+            List of dictionaries containing the output value and its metadata, ordered by creation sequence
+        """
+        all_values = []
+        store = self.data_store["outputs"]
+        
+        # Collect all output values with their metadata
+        for key, metadata in store.items():
+            value_info = {
+                "key": key,
+                "value": metadata["value"],
+                "tool_id": metadata["tool_id"],
+                "phase": metadata["phase"],
+                "created_at": metadata["created_at"],
+            }
+            all_values.append(value_info)
+
+        # Sort by creation timestamp
+        all_values.sort(key=lambda x: x["created_at"], reverse=True)
+        return all_values
