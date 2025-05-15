@@ -208,8 +208,17 @@ async def twitter_select_and_interact(
         "interaction_type": top_tweet["interaction_type"]
     }
 
+    # Set tweet composing instructions based on interaction type
+    if top_tweet["interaction_type"] == "reply":
+        tweet_composing_instructions = f"Reply to {selected_tweet['username']}'s tweet. Keep it conversational and engaging."
+    elif top_tweet["interaction_type"] == "quote":
+        tweet_composing_instructions = f"Quote {selected_tweet['username']}'s tweet with your own perspective."
+    elif top_tweet["interaction_type"] == "repost":
+        tweet_composing_instructions = ""
+
     context = {
-        "selected_tweet": f"{selected_tweet['username']}: {selected_tweet['text']}" if selected_tweet else None,
+        "selected_tweet": f"{selected_tweet['text']}" if selected_tweet else None,
+        'tweet_composing_instructions': tweet_composing_instructions,
     }
 
     # Postconditions (Design by Contract)
@@ -224,5 +233,6 @@ async def twitter_select_and_interact(
         "values": {
             "context": context,
             "output": outputs,
+            "delete_context": ['twitter_posts']
         },
     }

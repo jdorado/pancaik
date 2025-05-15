@@ -230,6 +230,19 @@ class Agent:
         if "values" in result and isinstance(result["values"], dict):
             values = result["values"]
 
+            # Handle delete_context if present in values
+            if "delete_context" in values:
+                delete_keys = values["delete_context"]
+                # Convert single key to list for uniform handling
+                if isinstance(delete_keys, str):
+                    delete_keys = [delete_keys]
+                # Delete each key from context if it exists
+                if isinstance(delete_keys, list):
+                    for key in delete_keys:
+                        if key in self.data_store["context"]:
+                            del self.data_store["context"][key]
+                            logger.info(f"Agent {self.id}: Deleted key '{key}' from context")
+
             # Handle context values
             if "context" in values and isinstance(values["context"], dict):
                 self._store_values_with_metadata(values["context"], self.data_store["context"], tool_id, phase)
