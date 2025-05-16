@@ -117,20 +117,38 @@ async def twitter_load_past_posts(
     min_date = datetime.utcnow() - timedelta(days=int(days_past))
     handler = TwitterHandler()
     
-    all_posts = []
-    for handle in handles:
-        ai_logger.action(f"Fetching tweets for {handle} from TwitterHandler", agent_id, account_id, agent_name)
-        posts = await handler.get_tweets_by_user(handle, limit=1000, include_replies=include_replies)
-        all_posts.extend(posts)
+    # Load all posts in a single database query
+    all_posts = await handler.get_tweets_from_users(
+        usernames=handles,
+        min_date=min_date,
+        limit=1000  # Increased limit since we'll filter later
+    )
     
-    # Filter posts by min_date
-    filtered_posts = [post for post in all_posts if post.get("created_at") and post["created_at"] >= min_date]
+    # Filter out replies if needed
+    if not include_replies:
+        all_posts = [
+            post for post in all_posts 
+            if not post.get("replied_to_id") and not post.get("inReplyToStatusId")
+        ]
 
     # Sort posts by created_at date desc
-    filtered_posts = sorted(filtered_posts, key=lambda x: x["created_at"], reverse=True)
+    filtered_posts = sorted(all_posts, key=lambda x: x["created_at"], reverse=True)
 
     # Limit to last 100 posts
-    filtered_posts = filtered_posts[-100:]
+    filtered_posts = filtered_posts[:100]
+
+    # Exit gracefully if no posts are found
+    if not filtered_posts:
+        ai_logger.error(
+            f"No posts found for {handles} in the past {days_past} days",
+            agent_id,
+            account_id,
+            agent_name,
+        )
+        return {
+            "should_exit": True
+        }
+
     # Flatten posts into list of strings
     posts_text = [post.get("text", "") for post in filtered_posts]
     # Create selective output format
@@ -144,7 +162,7 @@ async def twitter_load_past_posts(
     ]
     context = {}
     output = {}
-    model_id = config.get("ai_models", {}).get("default")
+    model_id = config.get("ai_models", {}).get("mini")
     if analysis_mode == "default":
         context = {"twitter_posts": posts_text}
         output = {"twitter_posts": selective_posts}

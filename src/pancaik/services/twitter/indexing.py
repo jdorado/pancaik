@@ -4,7 +4,7 @@ Twitter indexing tools for agents.
 This module provides tools for indexing tweets from users and mentions.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from ...core.ai_logger import ai_logger
@@ -14,6 +14,9 @@ from ...tools.base import tool
 from . import client
 from .client import TwitterClient
 from .handlers import TwitterHandler
+
+# Minimum time between indexing operations for a user
+MIN_INDEX_INTERVAL = timedelta(hours=1)
 
 
 @tool()
@@ -180,6 +183,7 @@ async def twitter_index_user(
 ):
     """
     Indexes tweets from a specific user for searching later.
+    Rate limited to once per hour per user.
 
     Args:
         twitter_connection: Connection ID for Twitter credentials
@@ -202,16 +206,20 @@ async def twitter_index_user(
     if db is None:
         raise ValueError("Database not initialized in config")
 
-    # Initialize connection handler with db
+    # Initialize handlers
     connection_handler = ConnectionHandler(db)
     twitter = await client.get_client(twitter_connection, connection_handler)
+    handler = TwitterHandler()
+
+    # Check cooldown status
+    in_cooldown, cooldown_info = await is_user_in_cooldown(handler, target_handle)
+    if in_cooldown:
+        logger.info(f"Rate limit: Too soon to index {target_handle}. Try again in {cooldown_info['wait_seconds']} seconds")
+        return cooldown_info
 
     # Get the semaphore for Twitter API rate limiting
     semaphore = get_config("twitter_semaphore")
     assert semaphore is not None, "Twitter semaphore must be available in config"
-
-    # Ensure we have a handler for database operations
-    handler = TwitterHandler()
 
     # Get or create the user document
     user = await handler.get_user(target_handle) or {"_id": target_handle, "user_id": twitter_user_id, "tries": 0}
@@ -230,7 +238,8 @@ async def twitter_index_user(
         latest_tweets = await twitter.get_latest_tweets(handle, user_id)
 
         # Update user document based on fetch results
-        user["date"] = datetime.utcnow()
+        current_time = datetime.utcnow()
+        user["date"] = current_time
 
         if not latest_tweets:
             logger.info(f"No tweets found for user {handle}")
@@ -274,6 +283,8 @@ async def twitter_index_user(
             "indexed_count": len(new_tweets),
             "already_indexed": len(existing_ids),
             "user_id": user.get("user_id"),
+            "last_indexed": current_time.isoformat(),
+            "next_allowed": (current_time + MIN_INDEX_INTERVAL).isoformat()
         }
         return result
     except Exception as e:
@@ -284,10 +295,68 @@ async def twitter_index_user(
         semaphore.release()
 
 
+async def get_users_in_cooldown(
+    handler: TwitterHandler,
+    usernames: List[str]
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Check which users from a list are in cooldown period.
+    
+    Args:
+        handler: TwitterHandler instance
+        usernames: List of Twitter usernames to check
+        
+    Returns:
+        Dictionary mapping usernames to their cooldown info if in cooldown, empty dict if not
+    """
+    # Get all users in a single query
+    users = await handler.get_users(usernames)
+    if not users:
+        return {}
+        
+    current_time = datetime.utcnow()
+    cooldown_info = {}
+    
+    for user in users:
+        last_indexed = user.get("date")
+        if not last_indexed:
+            continue
+            
+        if (current_time - last_indexed) < MIN_INDEX_INTERVAL:
+            time_until_next = last_indexed + MIN_INDEX_INTERVAL - current_time
+            cooldown_info[user["_id"]] = {
+                "status": "rate_limited",
+                "username": user["_id"],
+                "indexed_count": 0,
+                "last_indexed": last_indexed.isoformat(),
+                "next_allowed": (last_indexed + MIN_INDEX_INTERVAL).isoformat(),
+                "wait_seconds": int(time_until_next.total_seconds())
+            }
+    
+    return cooldown_info
+
+async def is_user_in_cooldown(handler: TwitterHandler, username: str) -> tuple[bool, Optional[Dict[str, Any]]]:
+    """
+    Check if a user is in the cooldown period.
+    
+    Args:
+        handler: TwitterHandler instance
+        username: Twitter username to check
+        
+    Returns:
+        Tuple of (is_in_cooldown, cooldown_info)
+        cooldown_info contains timing details if in cooldown, None otherwise
+    """
+    cooldown_info = await get_users_in_cooldown(handler, [username])
+    if username in cooldown_info:
+        return True, cooldown_info[username]
+    return False, None
+
 @tool()
 async def twitter_index_multiple(twitter_connection: str, target_handles: str, data_store: dict) -> Dict[str, Any]:
     """
     Index tweets from multiple Twitter users sequentially.
+    Limited to 20 users per call and respects per-user cooldown periods.
 
     Args:
         twitter_connection: Connection ID for Twitter credentials
@@ -309,11 +378,45 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
     account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
 
-    ai_logger.thinking(f"Preparing to index tweets for multiple users: {handles}...", agent_id, account_id, agent_name)
+    ai_logger.thinking(f"Preparing to index tweets for {len(handles)} users...", agent_id, account_id, agent_name)
+    logger.info(f"Preparing to index tweets for {len(handles)} users...")
 
-    # Process handles sequentially
-    processed_results = {}
+    # Initialize handler to check cooldown periods
+    db = get_config("db")
+    if db is None:
+        raise ValueError("Database not initialized in config")
+    handler = TwitterHandler()
+    
+    # Check cooldown status for all handles in a single query
+    cooldown_info = await get_users_in_cooldown(handler, handles)
+    
+    # Separate handles into those we can process and those in cooldown
+    handles_to_process = []
+    skipped_handles = []
+    
     for handle in handles:
+        if handle in cooldown_info:
+            skipped_handles.append(cooldown_info[handle])
+        else:
+            handles_to_process.append(handle)
+            # Break if we have 20 valid handles
+            if len(handles_to_process) >= 20:
+                break
+    
+    if handles_to_process:
+        ai_logger.action(
+            f"Processing {len(handles_to_process)} users (skipped {len(skipped_handles)} in cooldown)...", 
+            agent_id, account_id, agent_name
+        )
+    else:
+        ai_logger.action(
+            f"All {len(handles)} users are in cooldown period", 
+            agent_id, account_id, agent_name
+        )
+
+    # Process handles not in cooldown sequentially
+    processed_results = {}
+    for handle in handles_to_process:
         try:
             ai_logger.action(f"Processing tweets for user: {handle}", agent_id, account_id, agent_name)
             result = await twitter_index_user(twitter_connection, handle, data_store)
@@ -325,9 +428,15 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
                 "error": str(e),
                 "indexed_count": 0
             }
+    
+    # Add skipped handles to results
+    for info in skipped_handles:
+        processed_results[info["username"]] = info
 
+    remaining_handles = len(handles) - len(handles_to_process) - len(skipped_handles)
     ai_logger.result(
-        f"Completed indexing tweets for {len(handles)} users",
+        f"Completed indexing tweets for {len(handles_to_process)} users "
+        f"(skipped {len(skipped_handles)} in cooldown, {remaining_handles} not processed due to limit)",
         agent_id,
         account_id,
         agent_name
@@ -336,7 +445,11 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
     return {
         "status": "success",
         "results": processed_results,
-        "total_handles_processed": len(handles)
+        "total_handles_processed": len(handles_to_process),
+        "total_handles_skipped": len(skipped_handles),
+        "total_handles_requested": len(handles),
+        "total_handles_remaining": remaining_handles,
+        "handles_limited": len(handles) > (len(handles_to_process) + len(skipped_handles))
     }
 
 
@@ -485,6 +598,7 @@ async def get_filtered_following_handles(
 
     # Filter and save user entries from following list
     filtered_following = []
+    user_entries = []  # Collect all user entries for bulk update
     for following_user in following_list:
         if not following_user.get("username"):
             continue
@@ -510,9 +624,11 @@ async def get_filtered_following_handles(
             "name": following_user.get("name"),
             "bio": following_user.get("bio")
         }
-        
-        # Always update user info to track changes in follower count
-        await handler.update_user(user_entry)
+        user_entries.append(user_entry)
+    
+    # Bulk update all user entries at once if we have any
+    if user_entries:
+        await handler.bulk_update_users(user_entries)
 
     # Extract usernames from filtered following list
     usernames = [user["username"] for user in filtered_following]

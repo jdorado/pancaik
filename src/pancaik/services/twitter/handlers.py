@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ...core.config import get_config, logger
+import pymongo
 
 
 class TwitterHandler:
@@ -279,3 +280,33 @@ class TwitterHandler:
         
         # Convert to dictionary format
         return {doc["username"]: doc["last_interaction"] for doc in results}
+
+    async def bulk_update_users(self, users: List[Dict[str, Any]]) -> bool:
+        """Bulk update multiple users in the database.
+        
+        Args:
+            users: List of user dictionaries to update. Each must have an _id field.
+            
+        Returns:
+            True if all updates were successful, False otherwise
+        """
+        assert users, "Users list must not be empty"
+        assert all("_id" in user for user in users), "All users must have an _id field"
+        
+        collection = self.get_users_collection()
+        operations = [
+            pymongo.ReplaceOne(
+                {"_id": user["_id"]},
+                user,
+                upsert=True
+            )
+            for user in users
+        ]
+        
+        try:
+            result = await collection.bulk_write(operations)
+            logger.info(f"Bulk updated {len(users)} users")
+            return result.acknowledged
+        except Exception as e:
+            logger.error(f"Error in bulk user update: {e}")
+            return False
