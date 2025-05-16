@@ -6,6 +6,7 @@ This module provides tools for loading and analyzing tweets from users.
 
 from datetime import datetime, timedelta
 from json import tool
+from typing import Union, List
 
 from ...core.ai_logger import ai_logger
 from ...tools.base import tool
@@ -17,7 +18,7 @@ from .handlers import TwitterHandler
 
 @tool(agents=["agent_twitter_index_user"])
 async def twitter_load_past_posts(
-    target_handle: str,
+    target_handles: str,
     days_past: int,
     data_store: dict,
     include_replies: bool = False,
@@ -25,10 +26,11 @@ async def twitter_load_past_posts(
     criteria_for_analysis_selection: str = "",
 ):
     """
-    Loads previous Twitter posts for a user based on parameters.
+    Loads previous Twitter posts for one or more users based on parameters.
 
     Args:
-        target_handle: The handle of the user to load posts for.
+        target_handles: The handle(s) of the user(s) to load posts for. Can be a single handle or multiple handles separated by newlines.
+                      Handles can optionally include @ symbol which will be removed.
         days_past: Number of days in the past to look for posts.
         content_guidelines: Optional guidelines for analyzing posts.
         data_store: Agent's data store containing configuration and state.
@@ -40,22 +42,38 @@ async def twitter_load_past_posts(
     assert days_past is not None, "'days_past' must be provided"
     assert data_store is not None, "data_store must be provided"
     assert isinstance(include_replies, bool), "include_replies must be a boolean"
+    assert isinstance(target_handles, str), "target_handles must be a string"
+    
+    # Split handles by newlines, remove @ symbols, and filter out empty strings
+    handles = [h.strip().lstrip('@') for h in target_handles.split('\n') if h.strip()]
+    
     agent_id = data_store.get("agent_id")
     config = data_store.get("config", {})
     account_id = config.get("account_id")
     agent_name = config.get("name")
+    
     ai_logger.thinking(
-        f"Loading past Twitter posts for {target_handle} (days_past={days_past}, include_replies={include_replies}, analysis_mode={analysis_mode})",
+        f"Loading past Twitter posts for {handles} (days_past={days_past}, include_replies={include_replies}, analysis_mode={analysis_mode})",
         agent_id,
         account_id,
         agent_name,
     )
+    
     min_date = datetime.utcnow() - timedelta(days=int(days_past))
     handler = TwitterHandler()
-    ai_logger.action(f"Fetching tweets for {target_handle} from TwitterHandler", agent_id, account_id, agent_name)
-    posts = await handler.get_tweets_by_user(target_handle, limit=1000, include_replies=include_replies)
+    
+    all_posts = []
+    for handle in handles:
+        ai_logger.action(f"Fetching tweets for {handle} from TwitterHandler", agent_id, account_id, agent_name)
+        posts = await handler.get_tweets_by_user(handle, limit=1000, include_replies=include_replies)
+        all_posts.extend(posts)
+    
     # Filter posts by min_date
-    filtered_posts = [post for post in posts if post.get("created_at") and post["created_at"] >= min_date]
+    filtered_posts = [post for post in all_posts if post.get("created_at") and post["created_at"] >= min_date]
+
+    # Sort posts by created_at date desc
+    filtered_posts = sorted(filtered_posts, key=lambda x: x["created_at"], reverse=True)
+
     # Limit to last 100 posts
     filtered_posts = filtered_posts[-100:]
     # Flatten posts into list of strings
@@ -75,7 +93,7 @@ async def twitter_load_past_posts(
     if analysis_mode == "default":
         context = {"twitter_posts": posts_text}
         output = {"twitter_posts": selective_posts}
-        ai_logger.result(f"Loaded {len(posts_text)} posts for {target_handle} (default mode)", agent_id, account_id, agent_name)
+        ai_logger.result(f"Loaded {len(posts_text)} posts for {handles} (default mode)", agent_id, account_id, agent_name)
     elif analysis_mode == "summarize_analyze":
         prompt_data = {
             "task": "Summarize and analyze the following Twitter posts.",
@@ -84,11 +102,11 @@ async def twitter_load_past_posts(
             "context": data_store.get("context", {}),
         }
         prompt = get_prompt(prompt_data, "twitter_analysis_request")
-        ai_logger.action(f"Requesting LLM summary/analysis for {target_handle}", agent_id, account_id, agent_name)
+        ai_logger.action(f"Requesting LLM summary/analysis for {handles}", agent_id, account_id, agent_name)
         response = await get_completion(prompt=prompt, model_id=model_id)
         context = {"posts_summary": response}
         output = {"posts_summary": response}
-        ai_logger.result(f"Received summary/analysis for {target_handle}", agent_id, account_id, agent_name)
+        ai_logger.result(f"Received summary/analysis for {handles}", agent_id, account_id, agent_name)
     elif analysis_mode == "filter_criteria":
         output_format = (
             """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"filtered_posts": [{{"text": "...", "reason": "..."}}]\n"""
@@ -101,7 +119,7 @@ async def twitter_load_past_posts(
             "output_format": output_format,
         }
         prompt = get_prompt(prompt_data, "twitter_filter_request")
-        ai_logger.action(f"Requesting LLM filter for {target_handle} with criteria", agent_id, account_id, agent_name)
+        ai_logger.action(f"Requesting LLM filter for {handles} with criteria", agent_id, account_id, agent_name)
         response = await get_completion(prompt=prompt, model_id=model_id)
         parsed_response = extract_json_content(response) or {}
         filtered_post_texts = [post.get("text", "") for post in parsed_response.get("filtered_posts", [])]
@@ -115,7 +133,7 @@ async def twitter_load_past_posts(
         ]
         context = {"twitter_posts": filtered_post_texts}
         output = {"twitter_posts": filtered_full_posts}
-        ai_logger.result(f"Filtered posts for {target_handle} using criteria", agent_id, account_id, agent_name)
+        ai_logger.result(f"Filtered posts for {handles} using criteria", agent_id, account_id, agent_name)
     return {
         "status": "success",
         "values": {

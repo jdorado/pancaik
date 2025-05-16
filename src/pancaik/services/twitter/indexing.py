@@ -281,3 +281,59 @@ async def twitter_index_user(
     finally:
         # Always release the semaphore
         semaphore.release()
+
+
+@tool()
+async def twitter_index_multiple_mentions(twitter_connection: str, target_handles: str, data_store: dict) -> Dict[str, Any]:
+    """
+    Index mentions for multiple Twitter handles sequentially.
+
+    Args:
+        twitter_connection: Connection ID for Twitter credentials
+        target_handles: The handle(s) to search mentions for. Can be a single handle or multiple handles separated by newlines.
+                      Handles can optionally include @ symbol which will be removed.
+        data_store: Dictionary containing agent context for AI logging
+
+    Returns:
+        Dictionary with results for each handle
+    """
+    # Preconditions
+    assert data_store is not None, "data_store must be provided for AI logging"
+    assert isinstance(target_handles, str), "target_handles must be a string"
+    
+    # Split handles by newlines, remove @ symbols, and filter out empty strings
+    handles = [h.strip().lstrip('@') for h in target_handles.split('\n') if h.strip()]
+    
+    agent_id = data_store.get("agent_id")
+    account_id = data_store.get("config", {}).get("account_id")
+    agent_name = data_store.get("config", {}).get("name")
+
+    ai_logger.thinking(f"Preparing to index mentions for multiple handles: {handles}...", agent_id, account_id, agent_name)
+
+    # Process handles sequentially
+    processed_results = {}
+    for handle in handles:
+        try:
+            ai_logger.action(f"Processing mentions for handle: {handle}", agent_id, account_id, agent_name)
+            result = await twitter_index_mentions(twitter_connection, handle, data_store)
+            processed_results[handle] = result
+        except Exception as e:
+            logger.error(f"Error indexing mentions for {handle}: {str(e)}")
+            processed_results[handle] = {
+                "status": "error",
+                "error": str(e),
+                "indexed_count": 0
+            }
+
+    ai_logger.result(
+        f"Completed indexing mentions for {len(handles)} handles",
+        agent_id,
+        account_id,
+        agent_name
+    )
+
+    return {
+        "status": "success",
+        "results": processed_results,
+        "total_handles_processed": len(handles)
+    }

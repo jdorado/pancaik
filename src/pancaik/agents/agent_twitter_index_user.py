@@ -8,11 +8,11 @@ from typing import Any, Dict
 CONFIG: Dict[str, Any] = {
     "tools": [
         {
-            "id": "twitter_index_user",
+            "id": "twitter_index_multiple_mentions",
             "instance_id": "",  # Will be populated by parent agent
             "params": {
                 "twitter_connection": "",  # Required param from parent
-                "target_handle": "",  # Required param from parent
+                "target_handles": "",  # Required param from parent
             },
         }
     ],
