@@ -179,9 +179,9 @@ async def twitter_select_and_interact(
         }
         """
         
-        # Add 'ignore' to the valid interaction types
-        valid_actions = interaction_types + ['ignore']
-        action_list = ", ".join(valid_actions)
+        # Always evaluate against all possible interaction types
+        all_interaction_types = ['repost', 'quote', 'reply', 'ignore']
+        action_list = ", ".join(all_interaction_types)
         
         prompt_data = {
             "task": f"Analyze the following Twitter posts and decide your action from these options: {action_list}.\n For each post, provide a rationale for your decision. Determine the match score (1-100, 100 being the best match) for each post based on the selection criteria and context.",
@@ -198,12 +198,14 @@ async def twitter_select_and_interact(
         parsed_response = extract_json_content(response) or {}
         posts = parsed_response.get("posts", [])
 
-        # Get the top ranked tweet based on match_score
+        # Get the top ranked tweet based on match_score, but only from requested interaction types
         top_tweet = None
         if posts:
-            # Check if all posts are marked as 'ignore'
-            if not all(post.get("interaction_type") == "ignore" for post in posts):
-                top_tweet = max(posts, key=lambda x: float(x.get("match_score", 0)))
+            # Filter posts to only include those with requested interaction types
+            valid_posts = [post for post in posts if post.get("interaction_type") in interaction_types]
+            
+            if valid_posts:
+                top_tweet = max(valid_posts, key=lambda x: float(x.get("match_score", 0)))
                 ai_logger.result(
                     f"Selected post with match score {top_tweet.get('match_score')} "
                     f"for {top_tweet.get('interaction_type')} interaction. "
@@ -218,13 +220,12 @@ async def twitter_select_and_interact(
                 )
                 interaction_type = top_tweet["interaction_type"]
 
-            # Mark ignored posts in the database
+            # Only mark posts as ignored if they were explicitly marked as 'ignore'
             for post in posts:
                 post_id = post.get("post_id")
                 post_interaction_type = post.get("interaction_type")
                 
                 if post_id and post_interaction_type == 'ignore':
-                    # Only mark ignored posts at this stage
                     success = await twitter_handler.mark_post_interaction(
                         post_id=post_id,
                         username=username,
