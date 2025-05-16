@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union
 from bson import ObjectId
 
 from ...core.connections import ConnectionHandler, TestableConnection, connection_test_handler
-from . import api, direct_client
+from . import direct_client
 
 
 class TwitterClient(TestableConnection):
@@ -16,6 +16,17 @@ class TwitterClient(TestableConnection):
     def get_username(self) -> str:
         """Get the username of the authenticated client."""
         raise NotImplementedError("Get username not implemented for base TwitterClient")
+
+    async def get_profile(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get a Twitter user's profile information.
+        
+        Args:
+            username: The username to get profile for
+            
+        Returns:
+            Optional[Dict[str, Any]]: Profile data if successful, None otherwise
+        """
+        raise NotImplementedError("Get profile not implemented for base TwitterClient")
 
     async def upload_media(self, data: bytes, filename: str = "image.jpg") -> Optional[int]:
         """Upload media to Twitter.
@@ -89,6 +100,17 @@ class TwitterClient(TestableConnection):
         """
         raise NotImplementedError("Get tweet not implemented for base TwitterClient")
 
+    async def get_following(self, user_id: str) -> Optional[List[Dict]]:
+        """Get following list for a specific user.
+        
+        Args:
+            user_id: The user ID to get following for
+            
+        Returns:
+            Optional[List[Dict]]: List of following data if successful, None otherwise
+        """
+        raise NotImplementedError("Get following not implemented for base TwitterClient")
+
 
 class DirectTwitterClient(TwitterClient):
     """Twitter client using direct authentication."""
@@ -103,12 +125,16 @@ class DirectTwitterClient(TwitterClient):
     async def test_connection(self) -> Dict[str, Any]:
         """Test the connection by attempting to get own profile."""
         try:
-            profile = await api.get_profile(self.credentials["username"], self.credentials)
+            profile = await self.get_profile(self.credentials["username"])
             if profile and profile.get("id"):
                 return {"success": True, "message": "Successfully retrieved profile", "data": {"profile_id": profile.get("id")}}
             return {"success": False, "message": "Failed to retrieve profile", "data": None}
         except Exception as e:
             return {"success": False, "message": f"Connection test failed: {str(e)}", "data": None}
+
+    async def get_profile(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get a Twitter user's profile information."""
+        return await direct_client.get_profile(username, self.credentials)
 
     async def upload_media(self, data: bytes, filename: str = "image.jpg") -> Optional[int]:
         return await direct_client.upload_media(self.credentials, data, filename)
@@ -127,6 +153,9 @@ class DirectTwitterClient(TwitterClient):
 
     async def get_tweet(self, tweet_id: str):
         return await direct_client.get_tweet(tweet_id, self.credentials)
+
+    async def get_following(self, user_id: str) -> Optional[List[Dict]]:
+        return await direct_client.get_following(user_id, self.credentials)
 
 
 async def get_client(instance_id: str, connection_handler: ConnectionHandler) -> TwitterClient:

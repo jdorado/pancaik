@@ -5,13 +5,14 @@ This module provides tools for indexing tweets from users and mentions.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
 from ...tools.base import tool
 from . import client
+from .client import TwitterClient
 from .handlers import TwitterHandler
 
 
@@ -284,13 +285,13 @@ async def twitter_index_user(
 
 
 @tool()
-async def twitter_index_multiple_mentions(twitter_connection: str, target_handles: str, data_store: dict) -> Dict[str, Any]:
+async def twitter_index_multiple(twitter_connection: str, target_handles: str, data_store: dict) -> Dict[str, Any]:
     """
-    Index mentions for multiple Twitter handles sequentially.
+    Index tweets from multiple Twitter users sequentially.
 
     Args:
         twitter_connection: Connection ID for Twitter credentials
-        target_handles: The handle(s) to search mentions for. Can be a single handle or multiple handles separated by newlines.
+        target_handles: The handle(s) to index tweets from. Can be a single handle or multiple handles separated by newlines.
                       Handles can optionally include @ symbol which will be removed.
         data_store: Dictionary containing agent context for AI logging
 
@@ -308,17 +309,17 @@ async def twitter_index_multiple_mentions(twitter_connection: str, target_handle
     account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
 
-    ai_logger.thinking(f"Preparing to index mentions for multiple handles: {handles}...", agent_id, account_id, agent_name)
+    ai_logger.thinking(f"Preparing to index tweets for multiple users: {handles}...", agent_id, account_id, agent_name)
 
     # Process handles sequentially
     processed_results = {}
     for handle in handles:
         try:
-            ai_logger.action(f"Processing mentions for handle: {handle}", agent_id, account_id, agent_name)
-            result = await twitter_index_mentions(twitter_connection, handle, data_store)
+            ai_logger.action(f"Processing tweets for user: {handle}", agent_id, account_id, agent_name)
+            result = await twitter_index_user(twitter_connection, handle, data_store)
             processed_results[handle] = result
         except Exception as e:
-            logger.error(f"Error indexing mentions for {handle}: {str(e)}")
+            logger.error(f"Error indexing tweets for {handle}: {str(e)}")
             processed_results[handle] = {
                 "status": "error",
                 "error": str(e),
@@ -326,7 +327,7 @@ async def twitter_index_multiple_mentions(twitter_connection: str, target_handle
             }
 
     ai_logger.result(
-        f"Completed indexing mentions for {len(handles)} handles",
+        f"Completed indexing tweets for {len(handles)} users",
         agent_id,
         account_id,
         agent_name
@@ -337,3 +338,191 @@ async def twitter_index_multiple_mentions(twitter_connection: str, target_handle
         "results": processed_results,
         "total_handles_processed": len(handles)
     }
+
+
+@tool()
+async def twitter_index_following(twitter_connection: str, target_handle: str, data_store: dict, min_followers: str = "100") -> Dict[str, Any]:
+    """
+    Indexes tweets from all users that a target user follows.
+
+    Args:
+        twitter_connection: Connection ID for Twitter credentials
+        target_handle: Twitter handle whose following list we want to index
+        data_store: Dictionary containing agent context for AI logging
+        min_followers: Minimum number of followers required to index a user (default: "100")
+
+    Returns:
+        Dictionary with indexing operation results
+    """
+    # Cast min_followers to int as it may come as string
+    min_followers_int = int(min_followers) if min_followers else 0
+    
+    # Get filtered following handles
+    usernames, metadata = await get_filtered_following_handles(
+        twitter_connection=twitter_connection,
+        target_handle=target_handle,
+        data_store=data_store,
+        min_followers=min_followers_int
+    )
+    
+    if metadata["status"] != "success":
+        return metadata
+
+    # Index tweets from filtered following users
+    agent_id = data_store.get("agent_id")
+    account_id = data_store.get("config", {}).get("account_id")
+    agent_name = data_store.get("config", {}).get("name")
+    
+    ai_logger.action(
+        f"Indexing tweets from {len(usernames)} following users (filtered from {metadata['total_count']} total)...", 
+        agent_id, account_id, agent_name
+    )
+    
+    # Convert usernames list to newline-separated string for twitter_index_multiple
+    usernames_str = "\n".join(usernames)
+    result = await twitter_index_multiple(twitter_connection, usernames_str, data_store)
+
+    # Add following-specific metadata to result
+    result["following_count"] = metadata["total_count"]
+    result["filtered_following_count"] = metadata["filtered_count"]
+    result["min_followers_threshold"] = min_followers_int
+    result["source_user"] = target_handle
+
+    ai_logger.result(
+        f"Completed indexing tweets from following list of {target_handle} ({len(usernames)} users after filtering)",
+        agent_id,
+        account_id,
+        agent_name
+    )
+
+    return result
+
+
+async def get_filtered_following_handles(
+    twitter_connection: str,
+    target_handle: str,
+    data_store: dict,
+    min_followers: int = 100
+) -> Tuple[List[str], Dict[str, Any]]:
+    """
+    Gets filtered list of handles that a user follows based on criteria.
+
+    Args:
+        twitter_connection: Connection ID for Twitter credentials
+        target_handle: Twitter handle whose following list we want to get
+        data_store: Dictionary containing agent context for AI logging
+        min_followers: Minimum number of followers required to include a user
+
+    Returns:
+        Tuple containing:
+        - List of filtered usernames
+        - Dict with metadata about the filtering process
+    """
+    # Preconditions
+    assert target_handle, "Twitter handle must be provided"
+    assert data_store is not None, "data_store must be provided for AI logging"
+    
+    agent_id = data_store.get("agent_id")
+    account_id = data_store.get("config", {}).get("account_id")
+    agent_name = data_store.get("config", {}).get("name")
+
+    # Get database instance from config
+    db = get_config("db")
+    if db is None:
+        raise ValueError("Database not initialized in config")
+
+    # Initialize connection handler with db
+    connection_handler = ConnectionHandler(db)
+    twitter: TwitterClient = await client.get_client(twitter_connection, connection_handler)
+
+    # Ensure we have a handler for database operations
+    handler = TwitterHandler()
+
+    # Get or create the user document to get user_id
+    user = await handler.get_user(target_handle)
+    if not user or not user.get("user_id"):
+        # Try to get user profile first
+        logger.info(f"User {target_handle} not found or missing user_id, attempting to fetch profile")
+        profile = await twitter.get_profile(target_handle)
+        
+        if profile and profile.get("id"):
+            user = {
+                "_id": target_handle,
+                "user_id": profile["id"],
+                "date": datetime.utcnow(),
+                "tries": 0
+            }
+            await handler.update_user(user)
+            user_id = profile["user_id"]
+        else:
+            # Fallback to indexing tweets if profile fetch fails
+            user_result = await twitter_index_user(twitter_connection, target_handle, data_store)
+            if user_result.get("status") != "success" or not user_result.get("user_id"):
+                return [], {
+                    "status": "error",
+                    "username": target_handle,
+                    "error": "Could not obtain user_id",
+                    "filtered_count": 0,
+                    "total_count": 0
+                }
+            user_id = user_result["user_id"]
+    else:
+        user_id = user["user_id"]
+
+    ai_logger.action(f"Fetching following list for user {target_handle}...", agent_id, account_id, agent_name)
+    # Get the following list
+    following_list = await twitter.get_following(user_id)
+
+    if not following_list:
+        logger.info(f"No following users found for {target_handle}")
+        ai_logger.result(f"No following users found for {target_handle}", agent_id, account_id, agent_name)
+        return [], {
+            "status": "no_following_found",
+            "username": target_handle,
+            "filtered_count": 0,
+            "total_count": 0
+        }
+
+    # Filter and save user entries from following list
+    filtered_following = []
+    for following_user in following_list:
+        if not following_user.get("username"):
+            continue
+        
+        followers_count = following_user.get("followersCount", 0)
+        
+        # Skip users with fewer followers than minimum
+        if followers_count < int(min_followers):
+            logger.info(f"Skipping user {following_user['username']} with {followers_count} followers (minimum: {min_followers})")
+            continue
+            
+        filtered_following.append(following_user)
+        
+        user_entry = {
+            "_id": following_user["username"],
+            "user_id": following_user["id"],
+            "date": datetime.utcnow(),
+            "tries": 0,
+            "followers_count": following_user.get("followersCount"),
+            "following_count": following_user.get("followingCount"),
+            "is_verified": following_user.get("isVerified", False),
+            "profile_image_url": following_user.get("profileImageUrl"),
+            "name": following_user.get("name"),
+            "bio": following_user.get("bio")
+        }
+        
+        # Always update user info to track changes in follower count
+        await handler.update_user(user_entry)
+
+    # Extract usernames from filtered following list
+    usernames = [user["username"] for user in filtered_following]
+
+    metadata = {
+        "status": "success",
+        "username": target_handle,
+        "filtered_count": len(filtered_following),
+        "total_count": len(following_list),
+        "min_followers_threshold": min_followers
+    }
+
+    return usernames, metadata

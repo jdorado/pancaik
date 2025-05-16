@@ -14,6 +14,61 @@ from ...utils.ai_router import get_completion
 from ...utils.json_parser import extract_json_content
 from ...utils.prompt_utils import get_prompt
 from .handlers import TwitterHandler
+from .indexing import get_filtered_following_handles
+
+@tool(agents=["agent_twitter_index_following"])
+async def twitter_load_following_posts(
+    twitter_connection: str,
+    target_handle: str,
+    data_store: dict,
+    days_past: int = 7,
+    followers_count: int = 100,
+    include_replies: bool = False,
+    analysis_mode: str = "default",
+    criteria_for_analysis_selection: str = "",
+):
+    """
+    Loads posts from users that a target user follows.
+
+    Args:
+        twitter_connection: Connection ID for Twitter credentials
+        target_handle: The handle whose following list to load posts from
+        days_past: Number of days in the past to look for posts
+        data_store: Agent's data store containing configuration and state
+        followers_count: Minimum number of followers required to include a user (default: 100)
+        include_replies: Whether to include replies in the loaded posts (default: False)
+        analysis_mode: Mode for analyzing posts (default: "default")
+        criteria_for_analysis_selection: Optional criteria for analyzing posts
+
+    Returns:
+        Dictionary with loaded posts in 'values' for context update.
+    """
+    # Get filtered following handles
+    usernames, metadata = await get_filtered_following_handles(
+        twitter_connection=twitter_connection,
+        target_handle=target_handle,
+        data_store=data_store,
+        min_followers=followers_count
+    )
+    
+    if metadata["status"] != "success":
+        return {
+            "status": metadata["status"],
+            "error": metadata.get("error", "Failed to get following handles"),
+            "values": {}
+        }
+
+    # Convert usernames list to newline-separated string for twitter_load_past_posts
+    target_handles = "\n".join(usernames)
+
+    return await twitter_load_past_posts(
+        target_handles=target_handles,
+        days_past=days_past,
+        data_store=data_store,
+        include_replies=include_replies,
+        analysis_mode=analysis_mode,
+        criteria_for_analysis_selection=criteria_for_analysis_selection
+    )
 
 
 @tool(agents=["agent_twitter_index_user"])

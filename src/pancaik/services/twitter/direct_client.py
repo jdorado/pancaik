@@ -1,19 +1,147 @@
 """
 High-level Twitter client providing clean abstractions for Twitter operations.
 
-This module combines the low-level access with business logic and error handling
-to provide a comprehensive client for Twitter operations.
+This module provides functions for both direct API calls via Tweepy and our custom X-API service,
+handling authentication and providing a clean interface to Twitter operations.
+
+X-API Service Repository: https://github.com/jdorado/x-api-service
 """
 
 import io
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
+import tweepy
+from tweepy.asynchronous import AsyncClient
 
-from ...core.config import logger
-from . import api
+from ...core.config import get_config, logger
 from .models import format_tweet
 
+
+def get_x_api_url() -> str:
+    """Get the X-API URL from config.
+
+    Raises:
+        ValueError: If x_api_url is not configured in the application.
+    """
+    x_api_url = get_config("x_api_url")
+    if not x_api_url:
+        logger.error("X-API URL not configured. Set x_api_url in the init() configuration.")
+        raise ValueError("X-API URL not configured. Set x_api_url in the init() configuration.")
+    return x_api_url
+
+
+async def post(url: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Make a POST request to the X-API service."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=data) as response:
+                response.raise_for_status()
+                return await response.json()
+    except Exception as e:
+        logger.warning(f"{url}: {str(e)}")
+        return None
+
+
+def get_async_client(twitter: Dict[str, str]) -> AsyncClient:
+    """Initialize Tweepy AsyncClient."""
+    assert twitter, "Twitter credentials must not be empty"
+    return AsyncClient(
+        consumer_key=twitter["consumer_key"],
+        consumer_secret=twitter["consumer_secret"],
+        access_token=twitter.get("access_token"),
+        access_token_secret=twitter.get("access_token_secret"),
+        bearer_token=twitter["bearer_token"],
+    )
+
+
+def get_api(twitter: Dict[str, str]) -> tweepy.API:
+    """Initialize Tweepy API client."""
+    assert twitter, "Twitter credentials must not be empty"
+    auth = tweepy.OAuth1UserHandler(
+        consumer_key=twitter["consumer_key"],
+        consumer_secret=twitter["consumer_secret"],
+        access_token=twitter.get("access_token"),
+        access_token_secret=twitter.get("access_token_secret"),
+    )
+    return tweepy.API(auth)
+
+
+# Direct API endpoints
+
+async def get_profile(user: str, credentials: Dict[str, str]) -> Dict[str, Any]:
+    """Get a Twitter user's profile information."""
+    assert user, "User must not be empty"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/profile/{user}"
+    return await post(url, credentials)
+
+
+async def get_tweets_raw(user_id: str, credentials: Dict[str, str]) -> Dict[str, Any]:
+    """Get raw tweets from a specific user."""
+    assert user_id, "User ID must not be empty"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/tweets/{user_id}"
+    return await post(url, credentials)
+
+
+async def send_tweet_raw(
+    text: str, credentials: Dict[str, str], reply_to_id: Optional[str] = None, quote_tweet_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Send a tweet (raw API call)."""
+    assert text or quote_tweet_id, "Tweet text must not be empty unless quoting a tweet"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/tweet"
+    body = {
+        **credentials,
+        "text": text,
+        "reply_to_id": reply_to_id,
+        "quote_tweet_id": quote_tweet_id,
+    }
+    result = await post(url, body)
+    if result and "rest_id" in result:
+        result["id"] = result["rest_id"]
+        return result
+    elif result and "retweet" in result:
+        return result
+    return None
+
+
+async def search_raw(query: str, credentials: Dict[str, str]) -> Optional[list]:
+    """Search for tweets (raw API call)."""
+    assert query, "Search query must not be empty"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/search"
+    body = {**credentials, "query": query}
+    result = await post(url, body)
+    return result["tweets"] if result and "tweets" in result else None
+
+
+async def get_tweet_raw(tweet_id: str, credentials: Dict[str, str]) -> Dict[str, Any]:
+    """Get a specific tweet by ID (raw API call)."""
+    assert tweet_id, "Tweet ID must not be empty"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/tweet/{tweet_id}"
+    body = {**credentials}
+    return await post(url, body)
+
+
+async def get_following_raw(user_id: str, credentials: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    """Get following list for a specific user (raw API call)."""
+    assert user_id, "User ID must not be empty"
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/following/{user_id}"
+    result = await post(url, credentials)
+    return result
+
+
+# High-level operations
 
 async def download_image(url: str) -> Optional[bytes]:
     """Download image from URL."""
@@ -31,7 +159,7 @@ async def download_image(url: str) -> Optional[bytes]:
 async def upload_media(twitter: Dict[str, str], data: bytes, filename: str = "image.jpg") -> Optional[int]:
     """Upload media to Twitter."""
     try:
-        tweepy_api = api.get_api(twitter)
+        tweepy_api = get_api(twitter)
         media = tweepy_api.media_upload(filename, file=io.BytesIO(data))
         return media.media_id
     except Exception as e:
@@ -59,16 +187,11 @@ async def create_tweet(
     reply_id: Optional[int] = None,
     quote_id: Optional[int] = None,
 ) -> Optional[Dict]:
-    """Create a tweet with optional media, reply, or quote.
-
-    Returns:
-        - On success: dict with tweet info (including 'id')
-        - On error: None
-    """
+    """Create a tweet with optional media, reply, or quote."""
     try:
         # Handle retweet case when text is empty but quote_id is provided
         if not text and quote_id:
-            resp = await api.send_tweet("", twitter, quote_tweet_id=quote_id)
+            resp = await send_tweet_raw("", twitter, quote_tweet_id=quote_id)
             if resp:
                 logger.info(f"TWEET: {twitter.get('username')} retweeted tweet {quote_id}")
                 return {"retweet": quote_id}
@@ -78,7 +201,7 @@ async def create_tweet(
         media_ids = await process_images(twitter, images) if images else None
 
         # Send tweet
-        resp = await api.send_tweet(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
+        resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
         if resp and "id" in resp:
             url = f"https://x.com/A/status/{resp['id']}"
             logger.info(f"TWEET: {twitter.get('username')} published {url}")
@@ -121,7 +244,7 @@ async def get_latest_tweets(twitter: Dict, username: str, user_id: Optional[str]
         # If user_id not provided, try to get it from profile
         if not user_id:
             try:
-                profile = await api.get_profile(username, twitter)
+                profile = await get_profile(username, twitter)
                 if profile and "id" in profile:
                     user_id = profile["id"]
                     logger.info(f"Retrieved user ID '{user_id}' for username '{username}'")
@@ -132,7 +255,7 @@ async def get_latest_tweets(twitter: Dict, username: str, user_id: Optional[str]
                 logger.warning(f"Failed to get profile for user '{username}': {e}")
                 return None
 
-        tweets = await api.get_tweets(user_id, twitter)
+        tweets = await get_tweets_raw(user_id, twitter)
 
         # Check if tweets is valid
         if not tweets:
@@ -175,7 +298,7 @@ async def search(query: str, twitter: Dict) -> Optional[List[Dict]]:
     """Search tweets based on a query."""
     username = twitter.get("username", "Unknown")
     try:
-        tweets = await api.search(query, twitter)
+        tweets = await search_raw(query, twitter)
 
         # Check if tweets is valid
         if tweets is not None:
@@ -211,7 +334,7 @@ async def get_tweet(tweet_id: str, twitter: Dict) -> Optional[Dict]:
     """Retrieve a single tweet by its ID."""
     username = twitter.get("username", "Unknown")
     try:
-        tweet = await api.get_tweet(tweet_id, twitter)
+        tweet = await get_tweet_raw(tweet_id, twitter)
         if tweet:
             # Check if tweet is a dictionary
             if not isinstance(tweet, dict):
@@ -226,4 +349,19 @@ async def get_tweet(tweet_id: str, twitter: Dict) -> Optional[Dict]:
     except Exception as e:
         logger.warning(f"Failed to fetch tweet '{tweet_id}' for user '{username}': {e}")
 
+    return None
+
+
+async def get_following(user_id: str, twitter: Dict) -> Optional[List[Dict]]:
+    """Get following list for a specific user."""
+    username = twitter.get("username", "Unknown")
+    try:
+        following = await get_following_raw(user_id, twitter)
+        if following is not None:
+            if isinstance(following, list):
+                logger.info(f"Fetched {len(following)} following accounts for user ID '{user_id}'")
+                return following
+            logger.warning(f"Invalid following data type for user ID '{user_id}': {type(following)}")
+    except Exception as e:
+        logger.warning(f"Failed to fetch following for user ID '{user_id}' by user '{username}': {e}")
     return None
