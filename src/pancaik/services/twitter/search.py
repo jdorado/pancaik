@@ -143,10 +143,6 @@ async def twitter_search_posts(
     if not api_results:
         ai_logger.result("No tweets found matching the search criteria", agent_id, account_id, agent_name)
         return {
-            "values": {
-                "context": {"error": "No tweets found matching the search criteria"},
-                "output": {"error": "No tweets found matching the search criteria"}
-            },
             "should_exit": True  # Signal graceful exit
         }
 

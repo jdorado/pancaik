@@ -107,6 +107,7 @@ async def execute_task(agent: Agent) -> None:
         # Check if we've reached the maximum number of retries
         if retry_count >= max_retries:
             logger.info(f"Agent {agent_id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
+            await agent.deactivate() # In order to stop any sub-agents
             await AgentHandler.update_agent_status(
                 agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
             )

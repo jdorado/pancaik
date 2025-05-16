@@ -181,7 +181,7 @@ async def twitter_select_mentions(
     query = {
         "$and": [
             {"mentions.username": username},
-            {"replied_by": {"$nin": [reply_account]}},
+            {"interactions_by": {"$nin": [reply_account]}},
             {"username": {"$ne": username}},
         ]
     }
@@ -193,6 +193,9 @@ async def twitter_select_mentions(
 
     # Remove RT
     mentions = [mention for mention in mentions if not mention.get("text", "").startswith("RT @" + username)]
+
+    # Remove self replies
+    mentions = [mention for mention in mentions if mention.get("username") != reply_account]
 
     # Create the default return for no mentions case
     status = "no_mentions_found" if not mentions else "no_suitable_mentions"
@@ -216,11 +219,11 @@ async def twitter_select_mentions(
         should_reply = handle_count <= int(max_mentioned_users) and count_replies < int(max_thread_replies)
 
         # if reply_evaluation_rules is not None, evaluate the conversation
-        output_format = f"""
-        OUTPUT IN JSON: Strict JSON format, no additional text.
-        "should_reply": true or false
-        """
         if reply_evaluation_rules:
+            output_format = f"""
+            OUTPUT IN JSON: Strict JSON format, no additional text.
+            "should_reply": true or false
+            """
             prompt_data = {
                 "task": "Decide if the conversation is worth replying to, extrictly follow the guidelines.",
                 "today": datetime.utcnow().strftime("%Y-%m-%d"),
@@ -239,22 +242,60 @@ async def twitter_select_mentions(
         if should_reply:
             logger.info(f"Selected mention {mention['_id']} to reply to")
             ai_logger.result(f"Selected mention {mention['_id']} to reply to.", agent_id, account_id, agent_name)
+
+            # Prepare tweet composing instructions
+            tweet_composing_instructions = f"Reply to {mention['username']}'s tweet. Keep it conversational and engaging."
+
+            # Prepare context and outputs
+            context = {
+                "conversation": conversation,
+                "selected_tweet": mention["text"],
+                "tweet_composing_instructions": tweet_composing_instructions,
+            }
+
+            outputs = {
+                "selected_tweet": mention,
+                "interaction_type": "reply",
+            }
+
+            # Postconditions (Design by Contract)
+            assert isinstance(context, dict), "context must be a dictionary"
+            assert "selected_tweet" in context, "context must contain 'selected_tweet' key"
+            assert isinstance(context["selected_tweet"], str), "context selected_tweet must be a string"
+            assert "selected_tweet" in outputs, "output must contain 'selected_tweet' key"
+            assert "interaction_type" in outputs, "output must contain 'interaction_type' key"
+
+            ai_logger.action(
+                f"Preparing reply interaction with selected tweet",
+                agent_id, account_id, agent_name
+            )
+
             return {
-                "status": "success",
-                "values": {"context": {"conversation": conversation}, "reply_to_id": mention["_id"]},
+                "values": {
+                    "context": context,
+                    "output": outputs,
+                },
             }
         else:
-            # Mark as reviewed only if not suitable
-            await collection.update_one({"_id": mention["_id"]}, {"$push": {"replied_by": reply_account}})
-            logger.info(
-                f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as reviewed and continuing to next mention."
+            # Mark as ignored using the handler's method
+            success = await handler.mark_post_interaction(
+                post_id=mention["_id"],
+                username=reply_account,
+                interaction_type='ignored'
             )
-            ai_logger.action(
-                f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as reviewed.",
-                agent_id,
-                account_id,
-                agent_name,
-            )
+            
+            if success:
+                logger.info(
+                    f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as ignored and continuing to next mention."
+                )
+                ai_logger.action(
+                    f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as ignored.",
+                    agent_id,
+                    account_id,
+                    agent_name,
+                )
+            else:
+                logger.warning(f"Failed to mark mention {mention['_id']} as ignored")
 
     # If we've gone through all mentions and none are suitable
     logger.info(f"No {'unreplied' if not mentions else 'suitable'} mentions found")

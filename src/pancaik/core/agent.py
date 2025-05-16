@@ -296,8 +296,8 @@ class Agent:
                 result = await self.run_tool(step, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of step '{step['id']}'")
                 if isinstance(result, dict) and result.get("should_exit", False):
-                    logger.info(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
-                    break
+                    logger.warning(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
+                    return self.data_store
 
         # If simulate is True, don't process outputs
         if simulate:
@@ -325,7 +325,7 @@ class Agent:
                     "phase": output_data.get("phase", "unknown"),
                 }
                 for key, output_data in self.data_store["outputs"].items()
-                if output_data.get("phase") == "outputs"
+                if output_data.get("phase") == "output"
             }
 
             if outputs_to_save:

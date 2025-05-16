@@ -97,7 +97,7 @@ async def twitter_select_and_interact(
     
     if not twitter_posts:
         ai_logger.result(
-            "All provided posts have already been processed - no action needed",
+            "All posts filtered out due to recent interactions with users",
             agent_id, account_id, agent_name
         )
         return {
@@ -149,112 +149,117 @@ async def twitter_select_and_interact(
             "should_exit": True
         }
 
-    # TODO limit number per LLM call / do loop until one
-    twitter_posts = twitter_posts[:1] # TODO tmp
+    # Process posts in batches of 20 until we find a suitable post or check all
+    start_idx = 0
+    total_posts = len(twitter_posts)
+    selected_tweet = None
+    interaction_type = None
 
-    ai_logger.thinking(
-        f"Analyzing {len(twitter_posts)} posts against selection criteria",
-        agent_id, account_id, agent_name
-    )
+    while start_idx < total_posts:
+        # Get next batch of 20 posts
+        batch = twitter_posts[start_idx:start_idx + 20]
+        start_idx += 20
 
-    # --- Tool logic: LLM prompt example ---
-    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.
-    {
-        "posts": [
-            {
-                "post_id": "string",
-                "selection_rationale": "string",
-                "match_score": "number",
-                "interaction_type": "string",
-            }
-        ]
-    }
-    """
-    
-    # Add 'ignore' to the valid interaction types
-    valid_actions = interaction_types + ['ignore']
-    action_list = ", ".join(valid_actions)
-    
-    prompt_data = {
-        "task": f"Analyze the following Twitter posts and decide your action from these options: {action_list}.\n For each post, provide a rationale for your decision. Determine the match score (1-100, 100 being the best match) for each post based on the selection criteria and context.",
-        "selection_criteria": selection_criteria,
-        "twitter_posts": [{"_id": post["_id"], "text": post["text"]} for post in twitter_posts],
-        "context": data_store.get("context", {}),
-        "output_format": output_format,
-    }
-    prompt = get_prompt(prompt_data, "twitter_select_and_interact")
-    model_id = config.get("ai_models", {}).get("mini")
-    response = await get_completion(prompt=prompt, model_id=model_id)
-
-    # Parse the response as strict JSON
-    parsed_response = extract_json_content(response) or {}
-    posts = parsed_response.get("posts", [])
-
-    # Get the top ranked tweet based on match_score
-    top_tweet = None
-    if posts:
-        # Check if all posts are marked as 'ignore'
-        if all(post.get("interaction_type") == "ignore" for post in posts):
-            ai_logger.result(
-                "All posts marked for ignoring - no suitable interactions found",
-                agent_id, account_id, agent_name
-            )
-            return {
-                "should_exit": True
-            }
-            
-        top_tweet = max(posts, key=lambda x: float(x.get("match_score", 0)))
-        ai_logger.result(
-            f"Selected post with match score {top_tweet.get('match_score')} "
-            f"for {top_tweet.get('interaction_type')} interaction. "
-            f"Rationale: {top_tweet.get('selection_rationale')}",
+        ai_logger.thinking(
+            f"Analyzing batch of {len(batch)} posts (posts {start_idx-20+1}-{min(start_idx, total_posts)} of {total_posts}) against selection criteria",
             agent_id, account_id, agent_name
         )
 
-    # Mark posts with their respective interactions in the database
-    for post in posts:
-        post_id = post.get("post_id")
-        interaction_type = post.get("interaction_type")
+        # --- Tool logic: LLM prompt example ---
+        output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.
+        {
+            "posts": [
+                {
+                    "post_id": "string",
+                    "selection_rationale": "string",
+                    "match_score": "number",
+                    "interaction_type": "string",
+                }
+            ]
+        }
+        """
         
-        if post_id and interaction_type:
-            # Map interaction types to database values
-            interaction_map = {
-                'ignore': 'ignored',
-                'reply': 'replied',
-                'quote': 'quoted',
-                'repost': 'retweeted'
-            }
-            
-            db_interaction_type = interaction_map.get(interaction_type)
-            if db_interaction_type:
-                # Mark the post with the appropriate interaction type
-                success = await twitter_handler.mark_post_interaction(
-                    post_id=post_id,
-                    username=username,
-                    interaction_type=db_interaction_type
-                )
-                if success:
-                    logger.info(f"Marked post {post_id} as {db_interaction_type}")
-                else:
-                    logger.warning(f"Failed to mark post {post_id} as {db_interaction_type}")
+        # Add 'ignore' to the valid interaction types
+        valid_actions = interaction_types + ['ignore']
+        action_list = ", ".join(valid_actions)
+        
+        prompt_data = {
+            "task": f"Analyze the following Twitter posts and decide your action from these options: {action_list}.\n For each post, provide a rationale for your decision. Determine the match score (1-100, 100 being the best match) for each post based on the selection criteria and context.",
+            "selection_criteria": selection_criteria,
+            "twitter_posts": [{"_id": post["_id"], "text": post["text"]} for post in batch],
+            "context": data_store.get("context", {}),
+            "output_format": output_format,
+        }
+        prompt = get_prompt(prompt_data, "twitter_select_and_interact")
+        model_id = config.get("ai_models", {}).get("mini")
+        response = await get_completion(prompt=prompt, model_id=model_id)
 
-    # Find the full tweet object for the top ranked tweet
-    selected_tweet = next(
-        (post for post in twitter_posts if post["_id"] == top_tweet["post_id"]),
-        None
-    )
+        # Parse the response as strict JSON
+        parsed_response = extract_json_content(response) or {}
+        posts = parsed_response.get("posts", [])
+
+        # Get the top ranked tweet based on match_score
+        top_tweet = None
+        if posts:
+            # Check if all posts are marked as 'ignore'
+            if not all(post.get("interaction_type") == "ignore" for post in posts):
+                top_tweet = max(posts, key=lambda x: float(x.get("match_score", 0)))
+                ai_logger.result(
+                    f"Selected post with match score {top_tweet.get('match_score')} "
+                    f"for {top_tweet.get('interaction_type')} interaction. "
+                    f"Rationale: {top_tweet.get('selection_rationale')}",
+                    agent_id, account_id, agent_name
+                )
+
+                # Find the full tweet object for the top ranked tweet
+                selected_tweet = next(
+                    (post for post in batch if post["_id"] == top_tweet["post_id"]),
+                    None
+                )
+                interaction_type = top_tweet["interaction_type"]
+
+            # Mark ignored posts in the database
+            for post in posts:
+                post_id = post.get("post_id")
+                post_interaction_type = post.get("interaction_type")
+                
+                if post_id and post_interaction_type == 'ignore':
+                    # Only mark ignored posts at this stage
+                    success = await twitter_handler.mark_post_interaction(
+                        post_id=post_id,
+                        username=username,
+                        interaction_type='ignored'
+                    )
+                    if success:
+                        logger.info(f"Marked post {post_id} as ignored")
+                    else:
+                        logger.warning(f"Failed to mark post {post_id} as ignored")
+
+        # If we found a suitable post, break the loop
+        if selected_tweet is not None:
+            break
+
+    # If we didn't find any suitable posts after checking all batches
+    if selected_tweet is None:
+        ai_logger.result(
+            "No suitable posts found for interaction after checking all available posts",
+            agent_id, account_id, agent_name
+        )
+        return {
+            "should_exit": True
+        }
 
     outputs = {
         "selected_tweet": selected_tweet,
-        "interaction_type": top_tweet["interaction_type"]
+        "interaction_type": interaction_type
     }
 
     # Set tweet composing instructions based on interaction type
-    if top_tweet["interaction_type"] == "reply":
+    if interaction_type == "reply":
         tweet_composing_instructions = f"Reply to {selected_tweet['username']}'s tweet. Keep it conversational and engaging."
-    elif top_tweet["interaction_type"] == "quote":
+    elif interaction_type == "quote":
         tweet_composing_instructions = f"Quote {selected_tweet['username']}'s tweet with your own perspective."
-    elif top_tweet["interaction_type"] == "repost":
+    elif interaction_type == "repost":
         tweet_composing_instructions = ""
 
     context = {
@@ -270,7 +275,7 @@ async def twitter_select_and_interact(
     assert "interaction_type" in outputs, "output must contain 'interaction_type' key"
 
     ai_logger.action(
-        f"Preparing {top_tweet['interaction_type']} interaction with selected tweet",
+        f"Preparing {interaction_type} interaction with selected tweet",
         agent_id, account_id, agent_name
     )
 

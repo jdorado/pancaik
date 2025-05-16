@@ -12,6 +12,7 @@ from ...core.connections import ConnectionHandler
 from ...tools.base import tool
 from . import client, indexing
 from .client import TwitterClient
+from .handlers import TwitterHandler
 
 
 @tool()
@@ -87,15 +88,36 @@ async def twitter_publish_post(
         logger.error("Failed to publish tweet")
         raise Exception("Failed to publish tweet")
 
-    # For retweets, the response format is different
-    if interaction_type == "repost" and "retweet" in tweet:
-        tweet_id = tweet["retweet"]
-    else:
-        if "id" not in tweet:
-            logger.error("Invalid tweet response format")
-            ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
-            return {"status": "error", "message": "Invalid tweet response format"}
-        tweet_id = tweet["id"]
+    # Mark interaction in database if we have an interaction type
+    if interaction_type and selected_tweet:
+        twitter_handler = TwitterHandler()
+        username = twitter.get_username()
+        
+        # Map interaction types to database values
+        interaction_map = {
+            'reply': 'replied',
+            'quote': 'quoted',
+            'repost': 'retweeted'
+        }
+        
+        db_interaction_type = interaction_map.get(interaction_type)
+        if db_interaction_type:
+            post_id = selected_tweet.get("_id")
+            success = await twitter_handler.mark_post_interaction(
+                post_id=post_id,
+                username=username,
+                interaction_type=db_interaction_type
+            )
+            if success:
+                logger.info(f"Marked post {post_id} as {db_interaction_type}")
+            else:
+                logger.warning(f"Failed to mark post {post_id} as {db_interaction_type}")
+
+    if "id" not in tweet:
+        logger.error("Invalid tweet response format")
+        ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
+        return {"status": "error", "message": "Invalid tweet response format"}
+    tweet_id = tweet["id"]
 
     # Index the tweet
     username = twitter.get_username()
