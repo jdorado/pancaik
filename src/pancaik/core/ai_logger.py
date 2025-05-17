@@ -3,6 +3,7 @@
 - Use ai_logger.thinking() for initial analysis and planning
 - Use ai_logger.action() for significant operations being performed
 - Use ai_logger.result() for outcomes and conclusions
+- Use ai_logger.warning() for potential issues that need attention but aren't errors
 - Use ai_logger.error() for user-facing errors that should be displayed/handled
 - Keep standard logger.info/error for system-level logging
 - AI logs should tell a story of the tool's thought process
@@ -21,7 +22,9 @@ agent_id = data_store.get("agent_id")
 account_id = data_store.get("config", {}).get("account_id")
 agent_name = data_store.get("config", {}).get("name")
 
+# Example of different log types
 ai_logger.thinking("Starting analysis...", agent_id, account_id, agent_name)
+ai_logger.warning("Resource usage at 80% threshold", agent_id, account_id, agent_name)
 ```
 """
 
@@ -197,6 +200,32 @@ class AILogger:
             "agent_id": agent_id,
             "account_id": account_id,
             "type": "error",
+            "agent_name": agent_name,
+            "is_user_facing": True,
+        }
+
+        self._buffer.append(log_entry)
+
+        # If buffer is full, schedule a write
+        if len(self._buffer) >= self._max_buffer_size:
+            asyncio.create_task(self.flush())
+
+    def warning(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
+        """Log an AI warning message for potential issues that need attention.
+
+        Args:
+            message: The warning message
+            agent_id: ID of the agent
+            account_id: ID of the owner
+            agent_name: Optional human-readable name of the agent
+        """
+        # Add to buffer
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc),
+            "message": message,
+            "agent_id": agent_id,
+            "account_id": account_id,
+            "type": "warning",
             "agent_name": agent_name,
             "is_user_facing": True,
         }

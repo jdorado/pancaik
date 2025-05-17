@@ -71,7 +71,11 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
 
     handler = KnowledgeHandler()
     knowledge = await handler.get_knowledge(knowledge_id)
-    assert knowledge is not None, f"Knowledge not found for id: {knowledge_id}"
+    if knowledge is None:
+        logger.warning(f"Knowledge not found for id: {knowledge_id}")
+        ai_logger.warning(f"Knowledge not found for id: {knowledge_id}", agent_id, account_id, agent_name)
+        return {}
+
     assert "params" in knowledge, "Knowledge document must have 'params' field"
     params = knowledge["params"]
     assert isinstance(params, dict), "Knowledge 'params' must be a dictionary"
