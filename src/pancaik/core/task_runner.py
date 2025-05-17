@@ -5,7 +5,7 @@ from .agent import Agent
 from .agent_handler import AgentHandler
 from .ai_logger import ai_logger
 from .config import logger
-from core.utils.pagerduty import send_alert
+from pancaik.utils.pagerduty import send_alert
 
 
 async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
