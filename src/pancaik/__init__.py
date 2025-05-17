@@ -51,6 +51,10 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
                 - twitter_concurrency: Maximum concurrent Twitter operations (default: 5)
                 - twitter_max_concurrent_indexing_users: Maximum users to process in a single index_tweets call (default: 30)
 
+            PagerDuty Integration Settings:
+                - pagerduty_key: PagerDuty integration/routing key (optional)
+                - pagerduty_inactive: Whether to disable PagerDuty alerts (default: False)
+
         app: Optional FastAPI application to add routes to. Required if add_tasks_endpoint is True.
 
     Raises:
@@ -80,6 +84,10 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
     # Set twitter_max_concurrent_indexing_users config
     twitter_max_concurrent_indexing_users = config.get("twitter_max_concurrent_indexing_users", 30)
     set_config("twitter_max_concurrent_indexing_users", twitter_max_concurrent_indexing_users)
+
+    # Set PagerDuty configuration
+    set_config("pagerduty_key", config.get("pagerduty_key"))
+    set_config("pagerduty_inactive", config.get("pagerduty_inactive", False))
 
     # Start continuous task runner if configured
     task = None

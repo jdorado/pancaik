@@ -5,6 +5,7 @@ from .agent import Agent
 from .agent_handler import AgentHandler
 from .ai_logger import ai_logger
 from .config import logger
+from core.utils.pagerduty import send_alert
 
 
 async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
@@ -74,6 +75,14 @@ async def execute_task(agent: Agent) -> None:
         # Schedule next run
         await agent.schedule_next_run(last_run=current_time)
 
+        # Send resolution alert after scheduling
+        await send_alert(
+            event=f"Agent {agent_id} completed successfully",
+            dedup_key=agent_id,
+            is_resolve=True,
+            severity="info"
+        )
+
         return result
     except Exception as e:
         error_message = f"{agent_id}: {str(e)}"
@@ -111,6 +120,17 @@ async def execute_task(agent: Agent) -> None:
             await AgentHandler.update_agent_status(
                 agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
             )
+            # Send critical alert for complete failure
+            await send_alert(
+                event=f"Agent {agent_id} failed permanently",
+                dedup_key=agent_id,
+                details={
+                    "error": str(e),
+                    "retry_count": retry_count,
+                    "max_retries": max_retries
+                },
+                severity="error"
+            )
             return None
 
         # Schedule next run and update status with retry information
@@ -120,6 +140,19 @@ async def execute_task(agent: Agent) -> None:
             {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
         )
         logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
+        
+        # Send warning alert for retry attempt after scheduling
+        await send_alert(
+            event=f"Agent {agent_id} scheduled for retry",
+            dedup_key=agent_id,
+            details={
+                "error": str(e),
+                "retry_count": retry_count,
+                "max_retries": max_retries,
+                "next_retry": (current_time + timedelta(minutes=retry_minutes)).isoformat()
+            },
+            severity="warning"
+        )
     finally:
         # Flush any buffered AI logs
         await ai_logger.flush()
