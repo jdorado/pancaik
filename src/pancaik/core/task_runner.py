@@ -66,6 +66,14 @@ async def execute_task(agent: Agent) -> None:
         # Run the agent
         result = await agent.run()
 
+        # Handle retry output if specified
+        if isinstance(result, dict) and "retry" in result:
+            retry_minutes = result["retry"]
+            current_time = datetime.now(timezone.utc)
+            next_run = current_time + timedelta(minutes=retry_minutes)
+            await AgentHandler.update_agent_status(agent_id, "scheduled", {"next_run": next_run})
+            return result
+
         # Update agent status with successful completion and last run time
         current_time = datetime.now(timezone.utc)
         await AgentHandler.update_agent_status(

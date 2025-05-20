@@ -253,8 +253,11 @@ class AIRouter:
             messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt
 
             # Log the request
-            preview = messages[-1]["content"][:50].strip().replace("\n", " ")
-            logger.info(f"{effective_provider.name} {effective_model}: {preview}")
+            try:
+                preview = messages[-1]["content"][:50].strip().replace("\n", " ")
+                logger.info(f"{effective_provider.name} {effective_model}: {preview}")
+            except Exception as e:
+                pass
 
             # Prepare kwargs for API call, only including parameters that have values
             api_kwargs = kwargs.copy()

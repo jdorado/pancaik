@@ -210,7 +210,7 @@ async def twitter_select_mentions(
             logger.warning(f"Error in get_conversation for mention {mention.get('_id')}: {e}", exc_info=True)
             return {
                 "status": "error",
-                "should_exit": True,
+                "retry": 30,
                 "error": str(e),
                 "mention_id": mention.get("_id"),
             }
