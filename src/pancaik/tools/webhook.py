@@ -5,6 +5,7 @@ This module provides tools for sending data to custom HTTP endpoints.
 """
 
 from typing import Any, Dict, Optional
+import json
 
 import aiohttp
 
@@ -19,46 +20,56 @@ class WebhookError(Exception):
 
 @tool
 async def custom_webhook(
-    webhook_url: str, output: Dict[str, Any], data_store: Dict[str, Any], custom_headers: Optional[Dict[str, str]] = None, timeout: int = 30
+    webhook_url: str, data_store: Dict[str, Any], custom_headers: Optional[str] = None, timeout: int = 30
 ):
     """
     Sends data to a custom HTTP endpoint using POST method.
 
     Args:
         webhook_url: The URL of the webhook endpoint
-        output: The data payload to send
-        data_store: Agent's data store containing configuration and state
-        custom_headers: Optional custom headers for the request
+        data_store: Agent's data store containing configuration, state and outputs
+        custom_headers: Optional JSON string containing custom headers for the request
         timeout: Request timeout in seconds (default: 30)
 
     Returns:
         Dictionary with webhook operation results including context and output values
 
     Raises:
-        WebhookError: If the webhook request fails
+        WebhookError: If the webhook request fails or if custom headers JSON is invalid
     """
     # Extract agent info from data_store for AI logging
     agent_id = data_store.get("agent_id")
     config = data_store.get("config", {})
     account_id = config.get("account_id")
     agent_name = config.get("name")
+    outputs = data_store.get("outputs", {})
 
     # Preconditions
     assert webhook_url, "Webhook URL must be provided"
-    assert output, "Data payload must be provided"
     assert data_store, "Data store must be provided"
+    assert outputs, "No outputs found in data store"
 
     ai_logger.thinking(f"Preparing to send webhook to {webhook_url}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
 
+    # Parse custom headers if provided
+    parsed_headers = {}
+    if custom_headers:
+        try:
+            parsed_headers = json.loads(custom_headers)
+            if not isinstance(parsed_headers, dict):
+                raise WebhookError("Custom headers must be a valid JSON object")
+        except json.JSONDecodeError as e:
+            raise WebhookError(f"Invalid JSON in custom headers: {str(e)}")
+
     # Set up request headers
-    request_headers = {"Content-Type": "application/json", **(custom_headers or {})}
+    request_headers = {"Content-Type": "application/json", **parsed_headers}
 
     ai_logger.action(
-        f"Sending webhook request with {len(output)} data fields", agent_id=agent_id, account_id=account_id, agent_name=agent_name
+        f"Sending webhook request with {len(outputs)} data fields", agent_id=agent_id, account_id=account_id, agent_name=agent_name
     )
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(url=webhook_url, json=output, headers=request_headers, timeout=timeout) as response:
+        async with session.post(url=webhook_url, json=outputs, headers=request_headers, timeout=timeout) as response:
             response_data = await response.json()
             status_code = response.status
 
@@ -72,7 +83,7 @@ async def custom_webhook(
                 output_record = {
                     "webhook_response": response_data,
                     "summary": f"Webhook sent successfully to {webhook_url}",
-                    "sent_payload": output,
+                    "sent_payload": outputs,
                 }
 
                 # Postconditions
