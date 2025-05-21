@@ -164,9 +164,9 @@ async def twitter_load_past_posts(
     output = {}
     model_id = config.get("ai_models", {}).get("mini")
     if analysis_mode == "default":
-        context = {"twitter_posts": posts_text}
+        context = {"twitter_posts": selective_posts}
         output = {"twitter_posts": selective_posts}
-        ai_logger.result(f"Loaded {len(posts_text)} posts for {handles} (default mode)", agent_id, account_id, agent_name)
+        ai_logger.result(f"Loaded {len(selective_posts)} posts for {handles} (default mode)", agent_id, account_id, agent_name)
     elif analysis_mode == "summarize_analyze":
         prompt_data = {
             "task": "Summarize and analyze the following Twitter posts.",
@@ -204,7 +204,7 @@ async def twitter_load_past_posts(
             }
             for post in filtered_posts if post.get("text") in filtered_post_texts
         ]
-        context = {"twitter_posts": filtered_post_texts}
+        context = {"twitter_posts": filtered_full_posts}
         output = {"twitter_posts": filtered_full_posts}
         ai_logger.result(f"Filtered posts for {handles} using criteria", agent_id, account_id, agent_name)
     return {

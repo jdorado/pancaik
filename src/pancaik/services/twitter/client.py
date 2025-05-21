@@ -123,14 +123,14 @@ class DirectTwitterClient(TwitterClient):
         return self.credentials["username"]
 
     async def test_connection(self) -> Dict[str, Any]:
-        """Test the connection by attempting to get own profile."""
+        """Test the connection by attempting to login with credentials."""
         try:
-            profile = await self.get_profile(self.credentials["username"])
+            profile = await direct_client.login(self.credentials)
             if profile and profile.get("id"):
-                return {"success": True, "message": "Successfully retrieved profile", "data": {"profile_id": profile.get("id")}}
-            return {"success": False, "message": "Failed to retrieve profile", "data": None}
+                return {"success": True, "message": "Successfully authenticated", "data": {"profile_id": profile.get("id")}}
+            return {"success": False, "message": "Failed to authenticate", "data": None}
         except Exception as e:
-            return {"success": False, "message": f"Connection test failed: {str(e)}", "data": None}
+            return {"success": False, "message": f"Authentication failed: {str(e)}", "data": None}
 
     async def get_profile(self, username: str) -> Optional[Dict[str, Any]]:
         """Get a Twitter user's profile information."""

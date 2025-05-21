@@ -69,6 +69,28 @@ def get_api(twitter: Dict[str, str]) -> tweepy.API:
 
 # Direct API endpoints
 
+async def login(credentials: Dict[str, str]) -> Dict[str, Any]:
+    """Validate Twitter credentials by trying to get the user's profile.
+    
+    Args:
+        credentials: Twitter API credentials
+        
+    Returns:
+        Dictionary containing the user's profile if credentials are valid
+        
+    Raises:
+        Exception: If credentials are invalid or request fails
+    """
+    assert credentials, "Credentials must not be empty"
+    x_api = get_x_api_url()
+    url = f"{x_api}/login"
+    result = await post(url, credentials)
+    if not result or "error" in result:
+        logger.warning(f"Login failed: {result.get('error') if result else 'Unknown error'}")
+        raise ValueError("Invalid Twitter credentials")
+    return result
+
+
 async def get_profile(user: str, credentials: Dict[str, str]) -> Dict[str, Any]:
     """Get a Twitter user's profile information."""
     assert user, "User must not be empty"
