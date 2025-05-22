@@ -81,15 +81,15 @@ async def custom_webhook(
 
                 # Create context and output records
                 output_record = {
-                    "webhook_response": response_data,
+                    "response": response_data,
                     "summary": f"Webhook sent successfully to {webhook_url}",
-                    "sent_payload": outputs,
+                    "payload": outputs,
                 }
 
                 # Postconditions
                 assert "summary" in output_record, "Output must contain summary"
 
-                return {"status": "success", "values": {"output": output_record}}
+                return {"status": "success", "values": {"output": {"webhook": output_record}}}
 
             error_msg = f"Webhook request failed with status {status_code}: {response_data}"
             ai_logger.result(f"Webhook request failed: {error_msg}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)

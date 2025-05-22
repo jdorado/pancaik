@@ -85,7 +85,7 @@ async def execute_task(agent: Agent) -> None:
 
         # Send resolution alert after scheduling
         await send_alert(
-            event=f"Agent {agent_id} completed successfully",
+            event=f"{agent_id}: ({agent.config['name']}) completed successfully",
             dedup_key=agent_id,
             is_resolve=True,
             severity="info"
@@ -130,7 +130,7 @@ async def execute_task(agent: Agent) -> None:
             )
             # Send critical alert for complete failure
             await send_alert(
-                event=f"Agent {agent_id} failed permanently",
+                event=f"{agent_id}: ({agent.config['name']}) failed permanently",
                 dedup_key=agent_id,
                 details={
                     "error": str(e),
@@ -151,7 +151,7 @@ async def execute_task(agent: Agent) -> None:
         
         # Send warning alert for retry attempt after scheduling
         await send_alert(
-            event=f"Agent {agent_id} scheduled for retry",
+            event=f"{agent_id}: ({agent.config['name']}) scheduled for retry",
             dedup_key=agent_id,
             details={
                 "error": str(e),

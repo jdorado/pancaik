@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 
-from .config import get_config
+from .config import get_config, logger
 
 
 class AILogger:
@@ -128,6 +128,7 @@ class AILogger:
             "agent_name": agent_name,
         }
 
+        logger.info(f"AI Thinking [{agent_id}]: {message}")
         self._buffer.append(log_entry)
 
         # If buffer is full, schedule a write
@@ -153,6 +154,7 @@ class AILogger:
             "agent_name": agent_name,
         }
 
+        logger.info(f"AI Action [{agent_id}]: {message}")
         self._buffer.append(log_entry)
 
         # If buffer is full, schedule a write
@@ -178,6 +180,7 @@ class AILogger:
             "agent_name": agent_name,
         }
 
+        logger.info(f"AI Result [{agent_id}]: {message}")
         self._buffer.append(log_entry)
 
         # If buffer is full, schedule a write
@@ -204,6 +207,7 @@ class AILogger:
             "is_user_facing": True,
         }
 
+        logger.error(f"AI Error [{agent_id}]: {message}")
         self._buffer.append(log_entry)
 
         # If buffer is full, schedule a write
@@ -230,6 +234,7 @@ class AILogger:
             "is_user_facing": True,
         }
 
+        logger.warning(f"AI Warning [{agent_id}]: {message}")
         self._buffer.append(log_entry)
 
         # If buffer is full, schedule a write
