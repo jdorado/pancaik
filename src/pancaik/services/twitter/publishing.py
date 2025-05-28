@@ -21,7 +21,8 @@ async def twitter_publish_post(
     text_content: str = None, 
     data_store: Optional[Dict[str, Any]] = None,
     selected_tweet: Optional[Dict[str, Any]] = None,
-    interaction_type: Optional[str] = None
+    interaction_type: Optional[str] = None,
+    media_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Publish a tweet to Twitter.
@@ -32,12 +33,13 @@ async def twitter_publish_post(
         data_store: Optional data store for additional context
         selected_tweet: Optional dictionary containing tweet data for interactions/replies
         interaction_type: Optional string specifying type of interaction (e.g. reply, quote, retweet)
+        media_data: Optional media data to attach to the tweet
 
     Returns:
         Dictionary with publishing operation results
     """
     # Preconditions
-    assert text_content or (interaction_type == "repost" and selected_tweet), "Tweet content must be provided unless retweeting"
+    assert text_content or media_data or (interaction_type == "repost" and selected_tweet), "Tweet content or media must be provided unless retweeting"
 
     # Extract AI logging context
     agent_id = data_store.get("agent_id") if data_store else None
@@ -58,7 +60,11 @@ async def twitter_publish_post(
     assert semaphore is not None, "Twitter semaphore must be available in config"
 
     # Prepare tweet parameters based on interaction type
-    tweet_params = {"text": text_content}
+    tweet_params = {"text": text_content or ""}
+    
+    # Add media data if provided
+    if media_data is not None:
+        tweet_params["media_data"] = media_data
     
     if selected_tweet and interaction_type:
         tweet_id = selected_tweet.get("_id")
@@ -69,6 +75,9 @@ async def twitter_publish_post(
         elif interaction_type == "repost":
             # For repost, we don't need text content
             tweet_params = {"text": "", "quote_id": tweet_id}
+            # Re-add media data for reposts if provided
+            if media_data is not None:
+                tweet_params["media_data"] = media_data
 
     # Publish the tweet
     ai_logger.action(
@@ -129,7 +138,7 @@ async def twitter_publish_post(
         "values": {
             "output": {
                 "tweet": {
-                    "text": text_content,
+                    "text": text_content or "",
                     "url": f"https://x.com/{username}/status/{tweet_id}",
                     "interaction_type": interaction_type if interaction_type else None,
                     "interaction_with": selected_tweet.get("_id") if selected_tweet else None

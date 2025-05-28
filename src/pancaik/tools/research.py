@@ -33,7 +33,7 @@ async def research(
         research_prompt: The research prompt to process
         research_model: The model ID to use for research
         data_store: Agent's data store containing configuration and state
-        topic_selection: Optional dictionary containing 'topic' and 'distilled_info' for pre-selected research topics
+        topic_selection: Optional dictionary containing 'topic' and 'full_background' for pre-selected research topics
         context_selection: Optional string to determine context inclusion strategy. 
                            If 'full_context', includes both data_store context and topic_selection.
                            If 'topic_selector_only', includes only topic_selection.
@@ -69,7 +69,7 @@ async def research(
         prompt_data["context"] = data_store.get("context", {})
         # Add topic selection if provided
         if topic_selection and isinstance(topic_selection, dict):
-            if "topic" in topic_selection and "distilled_info" in topic_selection:
+            if "topic" in topic_selection and "full_background" in topic_selection:
                 prompt_data["topic_selection"] = topic_selection
                 ai_logger.thinking(
                     f"Using pre-selected topic with full context: {topic_selection['topic']}",
@@ -81,7 +81,7 @@ async def research(
         # Ensure topic_selection is not None when using topic_selector_only
         assert topic_selection is not None, "topic_selection must be provided when context_selection is 'topic_selector_only'"
         assert isinstance(topic_selection, dict), "topic_selection must be a dictionary"
-        assert "topic" in topic_selection and "distilled_info" in topic_selection, "topic_selection must contain 'topic' and 'distilled_info' keys"
+        assert "topic" in topic_selection and "full_background" in topic_selection, "topic_selection must contain 'topic' and 'full_background' keys"
         
         prompt_data["topic_selection"] = topic_selection
         ai_logger.thinking(
@@ -96,7 +96,7 @@ async def research(
         
         # Add topic selection if provided
         if topic_selection and isinstance(topic_selection, dict):
-            if "topic" in topic_selection and "distilled_info" in topic_selection:
+            if "topic" in topic_selection and "full_background" in topic_selection:
                 prompt_data["topic_selection"] = topic_selection
                 ai_logger.thinking(
                     f"Using pre-selected topic: {topic_selection['topic']}",

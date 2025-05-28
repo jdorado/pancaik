@@ -36,7 +36,7 @@ class Agent:
         # Load configuration and ensure datetime values are UTC-aware
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         config["ai_models"] = {
-                "default": "x-ai/grok-3-mini-beta",
+                "default": "google/gemini-2.5-flash-preview-05-20",
                 "composing": "google/gemini-2.5-flash-preview-05-20",
                 "research": "perplexity/llama-3.1-sonar-large-128k-online",
                 "research-mini": "x-ai/grok-3-mini-beta",

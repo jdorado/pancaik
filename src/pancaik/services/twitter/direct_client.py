@@ -110,10 +110,22 @@ async def get_tweets_raw(user_id: str, credentials: Dict[str, str]) -> Dict[str,
 
 
 async def send_tweet_raw(
-    text: str, credentials: Dict[str, str], reply_to_id: Optional[str] = None, quote_tweet_id: Optional[str] = None
+    text: str, 
+    credentials: Dict[str, str], 
+    reply_to_id: Optional[str] = None, 
+    quote_tweet_id: Optional[str] = None,
+    media_data: Optional[Union[str, List[str], Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Send a tweet (raw API call)."""
-    assert text or quote_tweet_id, "Tweet text must not be empty unless quoting a tweet"
+    """Send a tweet (raw API call).
+    
+    Args:
+        text: Tweet text content
+        credentials: Twitter API credentials
+        reply_to_id: ID of tweet to reply to
+        quote_tweet_id: ID of tweet to quote
+        media_data: Media data to attach (alternative to processing images separately)
+    """
+    assert text or quote_tweet_id or media_data, "Tweet text or media must be provided unless quoting a tweet"
     assert credentials, "Credentials must not be empty"
     x_api = get_x_api_url()
     url = f"{x_api}/tweet"
@@ -123,6 +135,11 @@ async def send_tweet_raw(
         "reply_to_id": reply_to_id,
         "quote_tweet_id": quote_tweet_id,
     }
+    
+    # Add media data if provided
+    if media_data is not None:
+        body["mediaData"] = media_data
+    
     result = await post(url, body)
     if result and "rest_id" in result:
         result["id"] = result["rest_id"]
@@ -208,22 +225,39 @@ async def create_tweet(
     images: Union[str, List[str]] = None,
     reply_id: Optional[int] = None,
     quote_id: Optional[int] = None,
+    media_data: Optional[Union[str, List[str], Dict[str, Any]]] = None,
 ) -> Optional[Dict]:
-    """Create a tweet with optional media, reply, or quote."""
+    """Create a tweet with optional media, reply, or quote.
+    
+    Args:
+        twitter: Twitter credentials
+        text: Tweet text content
+        images: Image URLs to download and upload (legacy method)
+        reply_id: ID of tweet to reply to
+        quote_id: ID of tweet to quote
+        media_data: Media data to attach directly (alternative to images)
+    """
     try:
         # Handle retweet case when text is empty but quote_id is provided
         if not text and quote_id:
-            resp = await send_tweet_raw("", twitter, quote_tweet_id=quote_id)
+            resp = await send_tweet_raw("", twitter, quote_tweet_id=quote_id, media_data=media_data)
             if resp:
                 logger.info(f"TWEET: {twitter.get('username')} retweeted tweet {quote_id}")
                 return {"retweet": quote_id}
             return None
 
-        # Process media if present
-        media_ids = await process_images(twitter, images) if images else None
-
-        # Send tweet
-        resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
+        # Process media if present (legacy image processing or direct media data)
+        if media_data is not None:
+            # Use media_data directly
+            resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id, media_data=media_data)
+        elif images:
+            # Legacy image processing
+            media_ids = await process_images(twitter, images)
+            resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
+        else:
+            # No media
+            resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
+            
         if resp and "id" in resp:
             url = f"https://x.com/A/status/{resp['id']}"
             logger.info(f"TWEET: {twitter.get('username')} published {url}")

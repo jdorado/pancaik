@@ -41,7 +41,7 @@ class TwitterClient(TestableConnection):
         """
         raise NotImplementedError("Upload media not implemented for base TwitterClient")
 
-    async def create_tweet(self, text: str, images=None, reply_id=None, quote_id=None) -> Optional[Dict]:
+    async def create_tweet(self, text: str, images=None, reply_id=None, quote_id=None, media_data=None) -> Optional[Dict]:
         """Create a tweet with optional media, reply, or quote.
 
         Args:
@@ -49,6 +49,7 @@ class TwitterClient(TestableConnection):
             images: Optional image URLs or binary data
             reply_id: Optional ID of tweet to reply to
             quote_id: Optional ID of tweet to quote
+            media_data: Optional media data to attach to the tweet
 
         Returns:
             Optional[Dict]: Tweet data if successful, None otherwise
@@ -144,8 +145,8 @@ class DirectTwitterClient(TwitterClient):
     async def upload_media(self, data: bytes, filename: str = "image.jpg") -> Optional[int]:
         return await direct_client.upload_media(self.credentials, data, filename)
 
-    async def create_tweet(self, text: str, images=None, reply_id=None, quote_id=None):
-        return await direct_client.create_tweet(self.credentials, text, images, reply_id, quote_id)
+    async def create_tweet(self, text: str, images=None, reply_id=None, quote_id=None, media_data=None):
+        return await direct_client.create_tweet(self.credentials, text, images, reply_id, quote_id, media_data)
 
     async def create_thread(self, texts, image_urls=None):
         return await direct_client.create_thread(self.credentials, texts, image_urls)
