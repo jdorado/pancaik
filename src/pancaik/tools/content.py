@@ -3,6 +3,7 @@ from typing import Any, Dict
 from ..core.ai_logger import ai_logger
 from ..core.config import logger
 from ..utils.ai_router import get_completion
+from ..utils.json_parser import extract_json_content
 from ..utils.prompt_utils import get_prompt
 from .base import tool
 
@@ -46,6 +47,8 @@ async def text_composer(
     )
 
     # --- Tool logic: LLM prompt for composing text ---
+    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"text_content": "Your composed text content here"\n"""
+    
     if topic_selection is not None:
         task = "Compose a text item based on the following instructions and adhere to the context. If topic_selection is present, follow it strictly."
     else:
@@ -53,6 +56,7 @@ async def text_composer(
     prompt_data = {
         "task": task,
         "content_prompt": content_prompt,
+        "output_format": output_format,
     }
     if topic_selection is not None:
         prompt_data["topic_selection"] = topic_selection
@@ -62,12 +66,17 @@ async def text_composer(
     model_id = config.get("ai_models", {}).get("composing")
 
     response = await get_completion(prompt=prompt, model_id=model_id)
-    context = {"text_content": response}
+    
+    # Parse the response as strict JSON
+    parsed_response = extract_json_content(response) or {}
+    text_content = parsed_response.get("text_content", response)  # Fallback to raw response if parsing fails
+    
+    context = {"text_content": text_content}
     output = context
 
     # AI log: result
     ai_logger.result(
-        f"Successfully composed text content of length {len(response)} characters",
+        f"Successfully composed text content of length {len(text_content)} characters",
         agent_id,
         account_id,
         agent_name,

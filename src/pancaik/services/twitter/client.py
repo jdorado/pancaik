@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Union
 from bson import ObjectId
 
 from ...core.connections import ConnectionHandler, TestableConnection, connection_test_handler
+from ...utils.encryption import encryption_util
 from . import direct_client
 
 
@@ -115,8 +116,12 @@ class TwitterClient(TestableConnection):
 class DirectTwitterClient(TwitterClient):
     """Twitter client using direct authentication."""
 
-    def __init__(self, username: str, password: str):
+    def __init__(self, username: str, password: str, email: Optional[str] = None, twoFactorSecret: Optional[str] = None):
         self.credentials = {"username": username, "password": password}
+        if email:
+            self.credentials["email"] = email
+        if twoFactorSecret:
+            self.credentials["twoFactorSecret"] = twoFactorSecret
 
     def get_username(self) -> str:
         """Get the username of the authenticated client."""
@@ -184,7 +189,18 @@ async def get_client(instance_id: str, connection_handler: ConnectionHandler) ->
     connection_id = connection.get("connection_id")  # This is the type of connection
 
     if connection_id == "twitter_non_api":
-        return DirectTwitterClient(username=params.get("username"), password=params.get("password"))
+        # Decrypt the password before creating the client
+        username = params.get("username")
+        encrypted_password = params.get("password")
+        email = params.get("email")  # Email doesn't need decryption
+        encrypted_twoFactorSecret = params.get("twoFactorSecret")
+        
+        # Decrypt the password if it exists
+        password = encryption_util.decrypt(encrypted_password) if encrypted_password else None
+        # Decrypt the twoFactorSecret if it exists
+        twoFactorSecret = encryption_util.decrypt(encrypted_twoFactorSecret) if encrypted_twoFactorSecret else None
+        
+        return DirectTwitterClient(username=username, password=password, email=email, twoFactorSecret=twoFactorSecret)
 
     raise NotImplementedError(f"Twitter connection type not implemented: {connection_id}")
 
@@ -192,5 +208,16 @@ async def get_client(instance_id: str, connection_handler: ConnectionHandler) ->
 @connection_test_handler("twitter_non_api")
 async def test_twitter_connection(params: Dict[str, Any]) -> Dict[str, Any]:
     """Test handler for Twitter connections."""
-    client = DirectTwitterClient(username=params.get("username"), password=params.get("password"))
+    # Decrypt the password before creating the client for testing
+    username = params.get("username")
+    encrypted_password = params.get("password")
+    email = params.get("email")  # Email doesn't need decryption
+    encrypted_twoFactorSecret = params.get("twoFactorSecret")
+    
+    # Decrypt the password if it exists
+    password = encryption_util.decrypt(encrypted_password) if encrypted_password else None
+    # Decrypt the twoFactorSecret if it exists
+    twoFactorSecret = encryption_util.decrypt(encrypted_twoFactorSecret) if encrypted_twoFactorSecret else None
+    
+    client = DirectTwitterClient(username=username, password=password, email=email, twoFactorSecret=twoFactorSecret)
     return await client.test_connection()

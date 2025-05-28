@@ -11,9 +11,13 @@ from ..core.ai_logger import ai_logger
 from ..tools.base import tool
 from ..utils.ai_router import get_completion
 from ..utils.prompt_utils import get_prompt
+from ..utils.cache_decorator import cache_with_expiration
 
 
 @tool
+@cache_with_expiration(
+    exclude_params=["data_store"]  # Exclude data_store as it contains dynamic state
+)
 async def research(
     research_prompt: str, 
     research_model: str, 

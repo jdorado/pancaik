@@ -16,6 +16,9 @@ from pancaik.utils.ai_router import (
     openrouter,
 )
 
+# Export caching decorator
+from pancaik.utils.cache_decorator import cache_with_expiration, clear_cache
+
 __all__ = [
     "get_completion",
     "compose_prompt",
@@ -25,4 +28,6 @@ __all__ = [
     "Provider",
     "default_router",
     "openrouter",
+    "cache_with_expiration",
+    "clear_cache",
 ]

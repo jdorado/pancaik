@@ -139,14 +139,15 @@ async def twitter_load_past_posts(
 
     # Exit gracefully if no posts are found
     if not filtered_posts:
-        ai_logger.error(
+        ai_logger.warning(
             f"No posts found for {handles} in the past {days_past} days",
             agent_id,
             account_id,
             agent_name,
         )
         return {
-            "should_exit": True
+            'context': {'twitter_posts': []},
+            'status': 'success',
         }
 
     # Flatten posts into list of strings

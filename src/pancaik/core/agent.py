@@ -37,7 +37,7 @@ class Agent:
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         config["ai_models"] = {
                 "default": "x-ai/grok-3-mini-beta",
-                "composing": "anthropic/claude-3.7-sonnet",
+                "composing": "google/gemini-2.5-flash-preview-05-20",
                 "research": "perplexity/llama-3.1-sonar-large-128k-online",
                 "research-mini": "x-ai/grok-3-mini-beta",
                 "analyzing": "openai/o3-mini-high",

@@ -1,7 +1,11 @@
 import sys
+import warnings
 from typing import Any, Dict
 
 from loguru import logger
+
+# Suppress SyntaxWarning messages (e.g., from tweepy library)
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 
 # Create a function to process messages and replace newlines with tabs
