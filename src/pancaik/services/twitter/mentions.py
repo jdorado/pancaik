@@ -208,12 +208,7 @@ async def twitter_select_mentions(
             conversation, count_replies, handle_count = await get_conversation(mention, twitter, handler)
         except Exception as e:
             logger.warning(f"Error in get_conversation for mention {mention.get('_id')}: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "retry": 30,
-                "error": str(e),
-                "mention_id": mention.get("_id"),
-            }
+            continue
 
         # Determine if we should reply
         should_reply = handle_count <= int(max_mentioned_users) and count_replies < int(max_thread_replies)
