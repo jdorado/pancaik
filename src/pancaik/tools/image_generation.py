@@ -57,7 +57,8 @@ async def image_generator(
     data_store: Dict[str, Any], 
     image_style: Optional[str] = None,
     image_context: Optional[str] = None,
-    image_prompt_guidelines: Optional[str] = None
+    image_prompt_guidelines: Optional[str] = None,
+    image_generation_type: str = "contextual"
 ) -> Dict[str, Any]:
     """
     Generate images using AI based on context and custom prompts.
@@ -70,6 +71,7 @@ async def image_generator(
         image_style: Define the visual style for the generated image (optional)
         image_context: Specify which part of the available context should be considered (optional)
         image_prompt_guidelines: Specify how the image prompt should be constructed (optional)
+        image_generation_type: Choose between 'contextual' (gemini-2.0-flash-preview-image-generation) or 'artistic' (imagen-3.0-generate-002)
 
     Returns:
         Dictionary with operation status and values for context and output
@@ -84,8 +86,7 @@ async def image_generator(
     logger.info(f"Running image_generator for agent {agent_id} ({agent_name})")
 
     ai_logger.thinking(
-        f"Starting image generation process. Style: {image_style or 'auto-detected'}, "
-        f"Context filtering: {bool(image_context)}, Guidelines: {bool(image_prompt_guidelines)}",
+        f"Starting image generation process. Type: {image_generation_type}",
         agent_id, account_id, agent_name
     )
 
@@ -99,9 +100,9 @@ async def image_generator(
     final_image_style = context_image_style if context_image_style is not None else image_style
     
     if context_image_style:
-        ai_logger.action(f"Found image style in context: '{context_image_style}'", agent_id, account_id, agent_name)
+        ai_logger.action(f"Found image style in context", agent_id, account_id, agent_name)
     elif image_style:
-        ai_logger.action(f"Using provided image style: '{image_style}'", agent_id, account_id, agent_name)
+        ai_logger.action(f"Using provided image style", agent_id, account_id, agent_name)
     else:
         ai_logger.thinking("No specific image style provided, will generate based on context", agent_id, account_id, agent_name)
     
@@ -143,7 +144,7 @@ async def image_generator(
     # Add image_prompt_guidelines if provided
     if image_prompt_guidelines:
         prompt_data["image_prompt_guidelines"] = image_prompt_guidelines
-        ai_logger.thinking(f"Applying custom prompt guidelines: '{image_prompt_guidelines}'", agent_id, account_id, agent_name)
+        ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
     
     # Add output_format as the last key
     prompt_data["output_format"] = output_format
@@ -156,7 +157,7 @@ async def image_generator(
     parsed_response = extract_json_content(response) or {}
     generated_prompt = parsed_response.get("image_prompt", "Create a professional image")
     
-    ai_logger.result(f"Generated image prompt: '{generated_prompt[:100]}{'...' if len(generated_prompt) > 100 else ''}'", agent_id, account_id, agent_name)
+    ai_logger.result(f"Generated image prompt", agent_id, account_id, agent_name)
     
     # Initialize Gemini client
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -164,33 +165,64 @@ async def image_generator(
         ai_logger.error("GEMINI_API_KEY environment variable is required for image generation", agent_id, account_id, agent_name)
         raise ValueError("GEMINI_API_KEY environment variable is required")
     
-    ai_logger.action("Generating image using Google Gemini Imagen model", agent_id, account_id, agent_name)
-    
     client = genai.Client(api_key=api_key)
 
-    # Generate images
-    result = await client.aio.models.generate_images(
-        model="imagen-3.0-generate-002",
-        prompt=generated_prompt,
-        config=types.GenerateImagesConfig(
+    # Determine the model and config based on image_generation_type
+    if image_generation_type == "contextual":
+        model_name = "gemini-2.0-flash-preview-image-generation"
+        config = types.GenerateContentConfig(
+            response_modalities=['TEXT', 'IMAGE']
+        )
+        ai_logger.action("Using contextual model for smart, context-aware generation", agent_id, account_id, agent_name)
+    else:  # artistic
+        model_name = "imagen-3.0-generate-002"
+        config = types.GenerateImagesConfig(
             number_of_images=1,
             output_mime_type="image/jpeg",
             person_generation="ALLOW_ADULT",
             aspect_ratio="4:3",
-        ),
-    )
+        )
+        ai_logger.action("Using artistic model for high-quality, photorealistic generation", agent_id, account_id, agent_name)
+
+    # Generate images
+    if image_generation_type == "contextual":
+        result = await client.aio.models.generate_content(
+            model=model_name,
+            contents=generated_prompt,
+            config=config,
+        )
+    else:
+        result = await client.aio.models.generate_images(
+            model=model_name,
+            prompt=generated_prompt,
+            config=config,
+        )
 
     # Process results
     generated_images = []
-    if result.generated_images:
-        for generated_image in result.generated_images:
-            # Convert image bytes to array of byte values
-            image_byte_array = list(generated_image.image.image_bytes)
-            generated_images.append({
-                'data': image_byte_array,
-                'mediaType': 'image/jpeg'
-            })
-        
+    if image_generation_type == "contextual":
+        # Process contextual model results
+        if result.candidates and len(result.candidates) > 0:
+            candidate = result.candidates[0]
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_byte_array = list(part.inline_data.data)
+                        generated_images.append({
+                            'data': image_byte_array,
+                            'mediaType': part.inline_data.mime_type or 'image/jpeg'
+                        })
+    else:
+        # Process artistic model results
+        if result.generated_images:
+            for generated_image in result.generated_images:
+                image_byte_array = list(generated_image.image.image_bytes)
+                generated_images.append({
+                    'data': image_byte_array,
+                    'mediaType': 'image/jpeg'
+                })
+
+    if generated_images:
         ai_logger.result(f"Successfully generated {len(generated_images)} image(s) in JPEG format", agent_id, account_id, agent_name)
     else:
         ai_logger.warning("No images were generated by the AI model", agent_id, account_id, agent_name)
