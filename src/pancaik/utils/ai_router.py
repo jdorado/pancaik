@@ -20,11 +20,23 @@ from openai import AsyncOpenAI
 from pancaik.core.config import logger
 
 
+class TextContent(TypedDict):
+    """Type definition for text content in a message."""
+    type: str  # "text"
+    text: str
+
+
+class ImageUrlContent(TypedDict):
+    """Type definition for image URL content in a message."""
+    type: str  # "image_url" 
+    image_url: Dict[str, str]  # {"url": "data:image/jpeg;base64,..."}
+
+
 class MessageDict(TypedDict):
     """Type definition for a chat message."""
 
     role: str
-    content: str
+    content: Union[str, List[Union[TextContent, ImageUrlContent]]]
 
 
 class Provider(Enum):
@@ -346,4 +358,63 @@ def compose_prompt(main_content: str, system_content: Optional[str] = None) -> L
     if system_content:
         messages.append({"role": "system", "content": system_content})
     messages.append({"role": "user", "content": main_content})
+    return messages
+
+
+def create_text_content(text: str) -> TextContent:
+    """Create a text content object for multi-modal messages.
+    
+    Args:
+        text: The text content
+        
+    Returns:
+        A text content object
+    """
+    return {"type": "text", "text": text}
+
+
+def create_image_content(image_base64: str, image_format: str = "jpeg") -> ImageUrlContent:
+    """Create an image content object for multi-modal messages.
+    
+    Args:
+        image_base64: Base64 encoded image data
+        image_format: Image format (jpeg, png, etc.)
+        
+    Returns:
+        An image content object
+    """
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/{image_format};base64,{image_base64}"}
+    }
+
+
+def compose_multimodal_prompt(
+    text: str, 
+    images: Optional[List[str]] = None, 
+    image_format: str = "jpeg",
+    system_content: Optional[str] = None
+) -> List[MessageDict]:
+    """Helper to compose a multi-modal prompt with text and images.
+
+    Args:
+        text: The main text content
+        images: List of base64 encoded images
+        image_format: Format of the images (jpeg, png, etc.)
+        system_content: Optional system message content
+
+    Returns:
+        A list of message dictionaries with multi-modal content
+    """
+    messages = []
+    if system_content:
+        messages.append({"role": "system", "content": system_content})
+    
+    # Create content list with text and images
+    content = [create_text_content(text)]
+    if images:
+        for image_base64 in images:
+            content.append(create_image_content(image_base64, image_format))
+    
+    messages.append({"role": "user", "content": content})
     return messages
