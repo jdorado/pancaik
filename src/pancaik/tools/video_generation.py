@@ -59,7 +59,26 @@ async def video_generator(
     
     # Get context and check for video style in context
     context = data_store.get("context", {})
-    context_video_style, updated_context = find_and_extract_context_key(context, "video style")
+
+    # Check if context has media_data with images and use the last one for video generation
+    input_image = None
+    if "media_data" in context and context["media_data"]:
+        # Select the last image from media_data
+        for media_item in reversed(context["media_data"]):
+            if media_item.get("mediaType", "").startswith("image/"):
+                # Convert byte array back to bytes for the API
+                image_bytes = bytes(media_item["data"])
+                # Create proper image object for Gemini API
+                input_image = types.Image(image_bytes=image_bytes, mime_type=media_item["mediaType"])
+                ai_logger.action(f"Found image in context media_data, will use as input for video generation", agent_id, account_id, agent_name)
+                break
+        
+        # Remove media_data from context after using it
+        updated_context = {k: v for k, v in context.items() if k != "media_data"}
+    else:
+        updated_context = context
+
+    context_video_style, updated_context = find_and_extract_context_key(updated_context, "video style")
     
     # Use context video style if found, otherwise use parameter
     final_video_style = context_video_style if context_video_style is not None else video_style
@@ -96,33 +115,48 @@ async def video_generator(
     # Generate prompt based on video_style and context
     ai_logger.action("Generating detailed video prompt using AI", agent_id, account_id, agent_name)
     
-    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"video_prompt": "Your detailed video generation prompt here"\n"""
-    prompt_data = {
-        "task": "Generate a detailed video prompt for AI video generation based on the provided style and context.",
-        "context": final_context,
-    }
+    video_prompt = None
     
-    # Add video_style as second key if provided
-    if final_video_style:
-        prompt_data["video_style"] = final_video_style
-    
-    # Add video_prompt_guidelines if provided
-    if video_prompt_guidelines:
-        prompt_data["video_prompt_guidelines"] = video_prompt_guidelines
-        ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
-    
-    # Add output_format as the last key
-    prompt_data["output_format"] = output_format
-    
-    prompt = get_prompt(prompt_data)
-    model_id = config.get("ai_models", {}).get("default")
-    response = await get_completion(prompt=prompt, model_id=model_id)
+    # Only generate prompt if we have context to work with
+    if final_context or video_prompt_guidelines or final_video_style:
+        output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"video_prompt": "Your detailed video generation prompt here"\n"""
+        prompt_data = {
+            "task": "Generate a detailed video prompt for AI video generation based on the provided style and context.",
+            "context": final_context,
+        }
+        
+        # Add video_style as second key if provided
+        if final_video_style:
+            prompt_data["video_style"] = final_video_style
+        
+        # Add video_prompt_guidelines if provided
+        if video_prompt_guidelines:
+            prompt_data["video_prompt_guidelines"] = video_prompt_guidelines
+            ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
+        
+        # Add output_format as the last key
+        prompt_data["output_format"] = output_format
+        
+        prompt = get_prompt(prompt_data)
+        model_id = config.get("ai_models", {}).get("default")
+        response = await get_completion(prompt=prompt, model_id=model_id)
 
-    # Parse the response as strict JSON
-    parsed_response = extract_json_content(response) or {}
-    generated_prompt = parsed_response.get("video_prompt", "Create a professional video")
+        # Parse the response as strict JSON
+        parsed_response = extract_json_content(response) or {}
+        video_prompt = parsed_response.get("video_prompt")
+        
+        ai_logger.result(f"Generated video prompt", agent_id, account_id, agent_name)
+    else:
+        ai_logger.thinking("No context available, will use basic video generation", agent_id, account_id, agent_name)
+        # Fallback to a basic prompt if no context is available
+        video_prompt = None
     
-    ai_logger.result(f"Generated video prompt", agent_id, account_id, agent_name)
+    # Only proceed with video generation if we have a prompt or an input image as anchor
+    if video_prompt is None and input_image is None:
+        ai_logger.thinking("No video prompt generated and no input image available - exiting gracefully", agent_id, account_id, agent_name)
+        return {
+            "should_exit": True,
+        }
     
     # Initialize Gemini client
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -137,7 +171,7 @@ async def video_generator(
 
     # Configure video generation settings
     video_config = types.GenerateVideosConfig(
-        person_generation="allow_all",  # supported values: "dont_allow" or "allow_adult" or "allow_all"
+        person_generation="allow_adult",  # supported values: "dont_allow" or "allow_adult" or "allow_all"
         aspect_ratio="16:9",  # supported values: "16:9" or "16:10"
         number_of_videos=1,  # supported values: 1 - 4
         duration_seconds=5,  # supported values: 5 - 8
@@ -145,10 +179,11 @@ async def video_generator(
     
     ai_logger.action("Starting video generation with AI model", agent_id, account_id, agent_name)
 
-    # Generate video
+    # Generate video - include image if available from context
     operation = await client.aio.models.generate_videos(
         model="veo-2.0-generate-001",
-        prompt=generated_prompt,
+        prompt=video_prompt,
+        image=input_image,
         config=video_config,
     )
 
