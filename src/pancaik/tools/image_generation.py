@@ -4,6 +4,8 @@ Image generation tool for Pancaik agents using AI.
 
 from typing import Any, Dict, Optional
 import os
+import io
+from PIL import Image
 from google import genai
 from google.genai import types
 
@@ -56,12 +58,34 @@ async def image_generator(
 
     # --- Tool logic: Image generation using Google Gemini API ---
     
-    # Get context and check for image style in context
+    # Get context and check for media_data with images and use the last one for image generation
     context = data_store.get("context", {})
-    context_image_style, updated_context = find_and_extract_context_key(context, "image style")
+    input_image = None
+    if "media_data" in context and context["media_data"]:
+        # Select the last image from media_data
+        for media_item in reversed(context["media_data"]):
+            if media_item.get("mediaType", "").startswith("image/"):
+                # Convert byte array back to bytes for the API
+                image_bytes = bytes(media_item["data"])
+                # Create PIL Image object for Gemini API
+                input_image = Image.open(io.BytesIO(image_bytes))
+                ai_logger.action(f"Found image in context media_data, will use as input for image generation", agent_id, account_id, agent_name)
+                break
+        
+        # Remove media_data from context after using it
+        updated_context = {k: v for k, v in context.items() if k != "media_data"}
+    else:
+        updated_context = context
+
+    context_image_style, updated_context = find_and_extract_context_key(updated_context, "image style")
     
     # Use context image style if found, otherwise use parameter
     final_image_style = context_image_style if context_image_style is not None else image_style
+    
+    # Force input_image to None for artistic model since it doesn't accept input images
+    if image_generation_type == "artistic" and input_image is not None:
+        ai_logger.action("Setting input image to None for artistic model (doesn't support input images)", agent_id, account_id, agent_name)
+        input_image = None
     
     if context_image_style:
         ai_logger.action(f"Found image style in context", agent_id, account_id, agent_name)
@@ -92,36 +116,57 @@ async def image_generator(
         
         ai_logger.result(f"Context extraction completed. Extracted {len(final_context)} relevant elements", agent_id, account_id, agent_name)
     
-    # Generate prompt based on image_style and context
-    ai_logger.action("Generating detailed image prompt using AI", agent_id, account_id, agent_name)
-    
-    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"image_prompt": "Your detailed image generation prompt here"\n"""
-    prompt_data = {
-        "task": "Generate a detailed image prompt for AI image generation based on the provided style and context.",
-        "context": final_context,
-    }
-    
-    # Add image_style as second key if provided
-    if final_image_style:
-        prompt_data["image_style"] = final_image_style
-    
-    # Add image_prompt_guidelines if provided
-    if image_prompt_guidelines:
-        prompt_data["image_prompt_guidelines"] = image_prompt_guidelines
-        ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
-    
-    # Add output_format as the last key
-    prompt_data["output_format"] = output_format
-    
-    prompt = get_prompt(prompt_data)
-    model_id = config.get("ai_models", {}).get("default")
-    response = await get_completion(prompt=prompt, model_id=model_id)
+    # Generate prompt based on whether image is provided
+    if input_image is not None:
+        # If image is provided, combine available elements without AI generation
+        prompt_data = {}
+        
+        if final_context:
+            prompt_data["context"] = final_context
+        
+        if final_image_style:
+            prompt_data["image_style"] = final_image_style
+            
+        if image_prompt_guidelines:
+            prompt_data["image_prompt_guidelines"] = image_prompt_guidelines
+        
+        if prompt_data:
+            generated_prompt = get_prompt(prompt_data)
+        else:
+            generated_prompt = "Generate an enhanced version of this image"
+            
+        ai_logger.action("Combined available elements for image-based generation (no AI prompt generation)", agent_id, account_id, agent_name)
+    else:
+        # No image provided, use AI to generate detailed prompt
+        ai_logger.action("Generating detailed image prompt using AI", agent_id, account_id, agent_name)
+        
+        output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"image_prompt": "Your detailed image generation prompt here"\n"""
+        prompt_data = {
+            "task": "Generate a detailed image prompt for AI image generation based on the provided style and context.",
+            "context": final_context,
+        }
+        
+        # Add image_style if provided
+        if final_image_style:
+            prompt_data["image_style"] = final_image_style
+        
+        # Add image_prompt_guidelines if provided
+        if image_prompt_guidelines:
+            prompt_data["image_prompt_guidelines"] = image_prompt_guidelines
+            ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
+        
+        # Add output_format as the last key
+        prompt_data["output_format"] = output_format
+        
+        prompt = get_prompt(prompt_data)
+        model_id = config.get("ai_models", {}).get("default")
+        response = await get_completion(prompt=prompt, model_id=model_id)
 
-    # Parse the response as strict JSON
-    parsed_response = extract_json_content(response) or {}
-    generated_prompt = parsed_response.get("image_prompt", "Create a professional image")
-    
-    ai_logger.result(f"Generated image prompt", agent_id, account_id, agent_name)
+        # Parse the response as strict JSON
+        parsed_response = extract_json_content(response) or {}
+        generated_prompt = parsed_response.get("image_prompt", "Create a professional image")
+        
+        ai_logger.result(f"Generated image prompt using AI", agent_id, account_id, agent_name)
     
     # Initialize Gemini client
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -150,12 +195,20 @@ async def image_generator(
 
     # Generate images
     if image_generation_type == "contextual":
+        # For contextual model, include image in contents if available
+        if input_image:
+            contents = [input_image, generated_prompt]
+        else:
+            contents = generated_prompt
+            
         result = await client.aio.models.generate_content(
             model=model_name,
-            contents=generated_prompt,
+            contents=contents,
             config=config,
         )
     else:
+        # For artistic model - imagen-3.0 may not support input images the same way
+        # Fall back to text-only generation for artistic model
         result = await client.aio.models.generate_images(
             model=model_name,
             prompt=generated_prompt,
