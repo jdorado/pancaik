@@ -152,19 +152,6 @@ async def execute_task(agent: Agent) -> None:
             {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
         )
         logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
-        
-        # Send warning alert for retry attempt after scheduling
-        await send_alert(
-            event=f"{agent_id}: ({agent.config['name']}) scheduled for retry",
-            dedup_key=agent_id,
-            details={
-                "error": str(e),
-                "retry_count": retry_count,
-                "max_retries": max_retries,
-                "next_retry": (current_time + timedelta(minutes=retry_minutes)).isoformat()
-            },
-            severity="warning"
-        )
     finally:
         # Flush any buffered AI logs
         await ai_logger.flush()
