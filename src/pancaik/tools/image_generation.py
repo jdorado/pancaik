@@ -8,6 +8,8 @@ import io
 from PIL import Image
 from google import genai
 from google.genai import types
+from openai import AsyncOpenAI
+import base64
 
 from ..core.config import logger
 from ..core.ai_logger import ai_logger
@@ -37,7 +39,7 @@ async def image_generator(
         image_style: Define the visual style for the generated image (optional)
         image_context: Specify which part of the available context should be considered (optional)
         image_prompt_guidelines: Specify how the image prompt should be constructed (optional)
-        image_generation_type: Choose between 'contextual' (gemini-2.0-flash-preview-image-generation) or 'artistic' (imagen-3.0-generate-002)
+        image_generation_type: Choose between 'contextual' (gemini-2.0-flash-preview-image-generation), 'artistic' (imagen-3.0-generate-002), or 'grok_image_generation' (grok-2-image-1212).
 
     Returns:
         Dictionary with operation status and values for context and output
@@ -56,7 +58,7 @@ async def image_generator(
         agent_id, account_id, agent_name
     )
 
-    # --- Tool logic: Image generation using Google Gemini API ---
+    # --- Tool logic: Image generation ---
     
     # Get context and check for media_data with images and use the last one for image generation
     context = data_store.get("context", {})
@@ -106,37 +108,45 @@ async def image_generator(
     
     # --- Generate content/prompts based on model type ---
     
-    # Initialize Gemini client
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        ai_logger.error("GEMINI_API_KEY environment variable is required for image generation", agent_id, account_id, agent_name)
-        raise ValueError("GEMINI_API_KEY environment variable is required")
-    
-    client = genai.Client(api_key=api_key)
+    generated_images = []
+
+    if image_generation_type == "contextual" or image_generation_type == "artistic":
+        gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        if not gemini_api_key:
+            ai_logger.error("GEMINI_API_KEY environment variable is required for Gemini image generation", agent_id, account_id, agent_name)
+            raise ValueError("GEMINI_API_KEY environment variable is required for Gemini image generation")
+        gemini_client = genai.Client(api_key=gemini_api_key)
 
     if image_generation_type == "contextual":
-        # CONTEXTUAL MODEL: Pass image directly if available, or generate AI prompt
         model_name = "gemini-2.0-flash-preview-image-generation"
         generation_config = types.GenerateContentConfig(
             response_modalities=['TEXT', 'IMAGE']
         )
         ai_logger.action("Using contextual model for smart, context-aware generation", agent_id, account_id, agent_name)
         
-        # Generate content for contextual model
         contents = await _generate_contextual_content(
             final_context, final_image_style, image_prompt_guidelines, 
             input_image, agent_id, account_id, agent_name, config
         )
         
-        # Generate with contextual model
-        result = await client.aio.models.generate_content(
+        gemini_result = await gemini_client.aio.models.generate_content(
             model=model_name,
             contents=contents,
             config=generation_config,
         )
         
-    else:  # artistic
-        # ARTISTIC MODEL: Always generate comprehensive prompt (including image description if image exists)
+        if gemini_result.candidates and len(gemini_result.candidates) > 0:
+            candidate = gemini_result.candidates[0]
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data:
+                        image_byte_array = list(part.inline_data.data)
+                        generated_images.append({
+                            'data': image_byte_array,
+                            'mediaType': part.inline_data.mime_type or 'image/jpeg'
+                        })
+        
+    elif image_generation_type == "artistic":
         model_name = "imagen-3.0-generate-002"
         generation_config = types.GenerateImagesConfig(
             number_of_images=1,
@@ -146,55 +156,94 @@ async def image_generator(
         )
         ai_logger.action("Using artistic model for high-quality, photorealistic generation", agent_id, account_id, agent_name)
         
-        # Generate comprehensive prompt for artistic model (includes image description if image exists)
         generated_prompt = await _generate_prompt_for_artistic(
             final_context, final_image_style, image_prompt_guidelines,
             input_image, agent_id, account_id, agent_name, config
         )
         
-        # Generate with artistic model
-        result = await client.aio.models.generate_images(
+        gemini_result = await gemini_client.aio.models.generate_images(
             model=model_name,
             prompt=generated_prompt,
             config=generation_config,
         )
 
-    # Process results
-    generated_images = []
-    if image_generation_type == "contextual":
-        # Process contextual model results
-        if result.candidates and len(result.candidates) > 0:
-            candidate = result.candidates[0]
-            if candidate.content and candidate.content.parts:
-                for part in candidate.content.parts:
-                    if hasattr(part, 'inline_data') and part.inline_data:
-                        image_byte_array = list(part.inline_data.data)
-                        generated_images.append({
-                            'data': image_byte_array,
-                            'mediaType': part.inline_data.mime_type or 'image/jpeg'
-                        })
-    else:
-        # Process artistic model results
-        if result.generated_images:
-            for generated_image in result.generated_images:
-                image_byte_array = list(generated_image.image.image_bytes)
+        if gemini_result.generated_images:
+            for generated_image_obj in gemini_result.generated_images:
+                image_byte_array = list(generated_image_obj.image.image_bytes)
                 generated_images.append({
                     'data': image_byte_array,
                     'mediaType': 'image/jpeg'
                 })
+    
+    elif image_generation_type == "grok_image_generation":
+        ai_logger.action("Using Grok model for image generation", agent_id, account_id, agent_name)
+        
+        XAI_API_KEY = os.environ.get("GROK_API_KEY")
+        if not XAI_API_KEY:
+            ai_logger.error("GROK_API_KEY environment variable is required for Grok image generation", agent_id, account_id, agent_name)
+            raise ValueError("GROK_API_KEY environment variable is required for Grok image generation")
+
+        grok_client = AsyncOpenAI(base_url="https://api.x.ai/v1", api_key=XAI_API_KEY)
+        grok_model_name = "grok-2-image-1212"
+
+        generated_grok_prompt = await _generate_prompt_for_artistic(
+            final_context, final_image_style, image_prompt_guidelines,
+            input_image, agent_id, account_id, agent_name, config
+        )
+        ai_logger.action(f"Generated prompt for Grok (original length: {len(generated_grok_prompt)})", agent_id, account_id, agent_name)
+
+        # Truncate prompt if it exceeds the maximum allowed length
+        MAX_GROK_PROMPT_LENGTH = 1024
+        if len(generated_grok_prompt) > MAX_GROK_PROMPT_LENGTH:
+            original_length = len(generated_grok_prompt)
+            generated_grok_prompt = generated_grok_prompt[:MAX_GROK_PROMPT_LENGTH]
+            ai_logger.warning(
+                f"Grok prompt was truncated from {original_length} to {MAX_GROK_PROMPT_LENGTH} characters to meet model limits.",
+                agent_id, account_id, agent_name
+            )
+            ai_logger.action(f"Truncated prompt for Grok: '{generated_grok_prompt}'", agent_id, account_id, agent_name)
+
+
+        try:
+            grok_response = await grok_client.images.generate(
+                model=grok_model_name,
+                prompt=generated_grok_prompt,
+                n=1,
+                response_format="b64_json"
+            )
+
+            if grok_response.data:
+                for img_data in grok_response.data:
+                    if img_data.b64_json:
+                        img_bytes = base64.b64decode(img_data.b64_json)
+                        image_byte_array = list(img_bytes)
+                        generated_images.append({
+                            'data': image_byte_array,
+                            'mediaType': 'image/png' 
+                        })
+            if not generated_images: # Check if any images were actually added after the loop
+                 ai_logger.warning("Grok model call succeeded but returned no image data.", agent_id, account_id, agent_name)
+
+        except Exception as e:
+            ai_logger.error(f"Error during Grok image generation with X.AI API: {e}", agent_id, account_id, agent_name)
+            # This will lead to "No images were generated" log message later if generated_images remains empty.
+            
+    else:
+        ai_logger.error(f"Unknown image_generation_type: {image_generation_type}", agent_id, account_id, agent_name)
+        raise ValueError(f"Unknown image_generation_type: {image_generation_type}. Supported types: contextual, artistic, grok_image_generation.")
+
 
     if generated_images:
-        ai_logger.result(f"Successfully generated {len(generated_images)} image(s) in JPEG format", agent_id, account_id, agent_name)
+        ai_logger.result(f"Successfully generated {len(generated_images)} image(s) using {image_generation_type} model.", agent_id, account_id, agent_name)
     else:
-        ai_logger.warning("No images were generated by the AI model", agent_id, account_id, agent_name)
+        ai_logger.warning(f"No images were generated by the {image_generation_type} AI model.", agent_id, account_id, agent_name)
 
-    context = {'media_data': generated_images}
+    context_for_return = {'media_data': generated_images}
     
-    # Return in the required format for Pancaik tools
     return {
         "values": {
-            "context": context,
-            "output": context,
+            "context": context_for_return,
+            "output": context_for_return,
         },
     } 
 

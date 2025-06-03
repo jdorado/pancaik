@@ -7,8 +7,8 @@ class EncryptionUtil:
     def __init__(self):
         key = os.environ.get('ENCRYPTION_KEY')
         if not key:
-            logger.error("ENCRYPTION_KEY not set, generating a new key for this session")
-            raise ValueError("ENCRYPTION_KEY not set")
+            logger.warning("ENCRYPTION_KEY not set, generating a new key for this session")
+            return
         else:
             # Ensure the key is valid base64 and decodes to 32 bytes
             try:

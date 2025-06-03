@@ -37,11 +37,10 @@ class Agent:
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         config["ai_models"] = {
                 "default": "google/gemini-2.5-flash-preview-05-20",
-                "composing": "google/gemini-2.5-flash-preview-05-20",
+                "composing": "anthropic/claude-3.5-haiku",
                 "research": "perplexity/llama-3.1-sonar-large-128k-online",
                 "research-mini": "x-ai/grok-3-mini-beta",
                 "analyzing": "openai/o3-mini-high",
-                "mini": "openai/gpt-4o-mini",
             }
         self.config = self._ensure_utc_datetimes(config.copy())
 

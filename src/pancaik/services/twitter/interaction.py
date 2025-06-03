@@ -191,7 +191,7 @@ async def twitter_select_and_interact(
             "output_format": output_format,
         }
         prompt = get_prompt(prompt_data, "twitter_select_and_interact")
-        model_id = config.get("ai_models", {}).get("mini")
+        model_id = config.get("ai_models", {})
         response = await get_completion(prompt=prompt, model_id=model_id)
 
         # Parse the response as strict JSON

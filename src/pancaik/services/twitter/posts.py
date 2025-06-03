@@ -26,6 +26,7 @@ async def twitter_load_following_posts(
     include_replies: bool = False,
     analysis_mode: str = "default",
     criteria_for_analysis_selection: str = "",
+    stop_if_no_posts: bool = True,
 ):
     """
     Loads posts from users that a target user follows.
@@ -39,6 +40,7 @@ async def twitter_load_following_posts(
         include_replies: Whether to include replies in the loaded posts (default: False)
         analysis_mode: Mode for analyzing posts (default: "default")
         criteria_for_analysis_selection: Optional criteria for analyzing posts
+        stop_if_no_posts: If True, execution will stop if no posts are found (default: True)
 
     Returns:
         Dictionary with loaded posts in 'values' for context update.
@@ -67,7 +69,8 @@ async def twitter_load_following_posts(
         data_store=data_store,
         include_replies=include_replies,
         analysis_mode=analysis_mode,
-        criteria_for_analysis_selection=criteria_for_analysis_selection
+        criteria_for_analysis_selection=criteria_for_analysis_selection,
+        stop_if_no_posts=stop_if_no_posts
     )
 
 
@@ -79,6 +82,7 @@ async def twitter_load_past_posts(
     include_replies: bool = False,
     analysis_mode: str = "default",
     criteria_for_analysis_selection: str = "",
+    stop_if_no_posts: bool = True,
 ):
     """
     Loads previous Twitter posts for one or more users based on parameters.
@@ -90,6 +94,7 @@ async def twitter_load_past_posts(
         content_guidelines: Optional guidelines for analyzing posts.
         data_store: Agent's data store containing configuration and state.
         include_replies: Whether to include replies in the loaded posts (default: False).
+        stop_if_no_posts: If True, execution will stop if no posts are found (default: True).
 
     Returns:
         Dictionary with loaded posts in 'values' for context update.
@@ -145,10 +150,12 @@ async def twitter_load_past_posts(
             account_id,
             agent_name,
         )
-        return {
-            'context': {'twitter_posts': []},
-            'status': 'success',
-        }
+        if stop_if_no_posts:
+            return {
+                "should_exit": True,
+            }
+        else:
+            return {}
 
     # Flatten posts into list of strings
     posts_text = [post.get("text", "") for post in filtered_posts]
@@ -163,7 +170,7 @@ async def twitter_load_past_posts(
     ]
     context = {}
     output = {}
-    model_id = config.get("ai_models", {}).get("mini")
+    model_id = config.get("ai_models", {}).get("default")
     if analysis_mode == "default":
         context = {"twitter_posts": selective_posts}
         output = {"twitter_posts": selective_posts}
