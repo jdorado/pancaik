@@ -100,9 +100,9 @@ async def execute_task(agent: Agent) -> None:
         retry_policy = agent.retry_policy
         current_time = datetime.now(timezone.utc)
 
-        # Default retry policy values - always retry unless explicitly disabled
-        retry_minutes = 10
-        max_retries = 5
+        # Default retry policy values - exponential backoff with more retries
+        base_retry_minutes = 10  # Start with 10 minutes
+        max_retries = 10  # Increased from 5 to 10
 
         # Only skip retries if retry_policy is explicitly False
         if retry_policy is False:
@@ -112,13 +112,17 @@ async def execute_task(agent: Agent) -> None:
             )
             return None
 
-        # If retry_policy is a dict, check for custom minutes and max_retries parameters
+        # If retry_policy is a dict, check for custom base_minutes and max_retries parameters
         if isinstance(retry_policy, dict):
-            retry_minutes = retry_policy.get("minutes", retry_minutes)
+            base_retry_minutes = retry_policy.get("base_minutes", base_retry_minutes)
             max_retries = retry_policy.get("max_retries", max_retries)
 
+        # Calculate exponential backoff: base_minutes * (2 ^ (retry_count - 1))
+        # Cap at 8 hours (480 minutes) to prevent extremely long delays
+        retry_minutes = min(base_retry_minutes * (2 ** (retry_count - 1)), 480)
+
         # Invariant: retry parameters must be non-negative
-        assert retry_minutes >= 0, "Retry minutes must be a non-negative value"
+        assert base_retry_minutes >= 0, "Base retry minutes must be a non-negative value"
         assert max_retries >= 0, "Max retries must be a non-negative value"
 
         # Check if we've reached the maximum number of retries
