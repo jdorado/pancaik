@@ -186,23 +186,11 @@ async def image_generator(
         grok_client = AsyncOpenAI(base_url="https://api.x.ai/v1", api_key=XAI_API_KEY)
         grok_model_name = "grok-2-image-1212"
 
-        generated_grok_prompt = await _generate_prompt_for_artistic(
+        generated_grok_prompt = await _generate_prompt_for_grok(
             final_context, final_image_style, image_prompt_guidelines,
             input_image, agent_id, account_id, agent_name, config
         )
-        ai_logger.action(f"Generated prompt for Grok (original length: {len(generated_grok_prompt)})", agent_id, account_id, agent_name)
-
-        # Truncate prompt if it exceeds the maximum allowed length
-        MAX_GROK_PROMPT_LENGTH = 1024
-        if len(generated_grok_prompt) > MAX_GROK_PROMPT_LENGTH:
-            original_length = len(generated_grok_prompt)
-            generated_grok_prompt = generated_grok_prompt[:MAX_GROK_PROMPT_LENGTH]
-            ai_logger.warning(
-                f"Grok prompt was truncated from {original_length} to {MAX_GROK_PROMPT_LENGTH} characters to meet model limits.",
-                agent_id, account_id, agent_name
-            )
-            ai_logger.action(f"Truncated prompt for Grok: '{generated_grok_prompt}'", agent_id, account_id, agent_name)
-
+        ai_logger.action(f"Generated optimized prompt for Grok (length: {len(generated_grok_prompt)})", agent_id, account_id, agent_name)
 
         try:
             grok_response = await grok_client.images.generate(
@@ -363,3 +351,67 @@ async def _generate_contextual_content(
         
         ai_logger.result("Generated AI prompt for contextual model", agent_id, account_id, agent_name)
         return generated_prompt 
+
+
+async def _generate_prompt_for_grok(
+    final_context: Dict[str, Any], 
+    final_image_style: Optional[str], 
+    image_prompt_guidelines: Optional[str],
+    input_image: Optional[Image.Image],
+    agent_id: str, 
+    account_id: str, 
+    agent_name: str, 
+    config: Dict[str, Any]
+) -> str:
+    """Generate a concise prompt for Grok model that stays under 1024 characters."""
+    
+    prompt_data = {
+        "task": "Generate a concise but detailed image prompt for Grok AI image generation. The prompt MUST be under 1024 characters while preserving the most important visual details, style, and context.",
+        "context": final_context,
+        "length_requirement": "The generated prompt must be under 1024 characters. Prioritize the most important visual elements and be concise but descriptive.",
+    }
+    
+    # Add image description if input image exists
+    if input_image:
+        image_description = await _describe_image_for_prompt(input_image, agent_id, account_id, agent_name, config)
+        prompt_data["input_image_description"] = image_description
+        ai_logger.action("Added image description to Grok prompt generation", agent_id, account_id, agent_name)
+    
+    # Add style and guidelines
+    if final_image_style:
+        prompt_data["image_style"] = final_image_style
+    
+    if image_prompt_guidelines:
+        prompt_data["image_prompt_guidelines"] = image_prompt_guidelines
+    
+    # Add specific output format with length constraint
+    prompt_data["output_format"] = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"image_prompt": "Your concise image generation prompt here (MUST be under 1024 characters)"\n"""
+    
+    # Generate the prompt using AI
+    prompt = get_prompt(prompt_data)
+    model_id = config.get("ai_models", {}).get("default")
+    response = await get_completion(prompt=prompt, model_id=model_id)
+    
+    # Parse the response
+    parsed_response = extract_json_content(response) or {}
+    generated_prompt = parsed_response.get("image_prompt", "Create a professional image")
+    
+    # Validate length and warn if still too long
+    if len(generated_prompt) > 1024:
+        ai_logger.warning(
+            f"Generated Grok prompt is {len(generated_prompt)} characters, exceeding 1024 limit. The AI model may have ignored length constraints.",
+            agent_id, account_id, agent_name
+        )
+        # As a fallback, truncate but try to end at a word boundary
+        if len(generated_prompt) > 1024:
+            truncated = generated_prompt[:1021]  # Leave room for "..."
+            # Try to end at a word boundary
+            last_space = truncated.rfind(' ')
+            if last_space > 900:  # Only use word boundary if it's not too short
+                generated_prompt = truncated[:last_space] + "..."
+            else:
+                generated_prompt = truncated + "..."
+            ai_logger.action(f"Fallback truncation applied to Grok prompt", agent_id, account_id, agent_name)
+    
+    ai_logger.result(f"Generated optimized prompt for Grok model ({len(generated_prompt)} characters)", agent_id, account_id, agent_name)
+    return generated_prompt 
