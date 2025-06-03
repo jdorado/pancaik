@@ -5,6 +5,7 @@ Video generation tool for Pancaik agents using AI.
 from typing import Any, Dict, Optional
 import os
 import time
+import json
 from google import genai
 from google.genai import types
 import asyncio
@@ -96,10 +97,10 @@ async def video_generator(
         ai_logger.action(f"Extracting relevant context using instructions: '{video_context}'", agent_id, account_id, agent_name)
         
         context_extraction_prompt_data = {
-            "task": "Extract relevant context for video generation based on the provided instructions.",
+            "task": "Extract relevant context for video generation based on the provided instructions. Focus on the most relevant information and keep your response concise.",
             "full_context": updated_context,
             "extraction_instructions": video_context,
-            "output_format": """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"extracted_context": {"key": "value", ...}\n"""
+            "output_format": """\nOUTPUT IN JSON: Strict JSON format, no additional text. Keep the extracted context concise and focused.\n"extracted_context": {"key": "value", ...}\n"""
         }
         context_extraction_prompt = get_prompt(context_extraction_prompt_data)
         model_id = config.get("ai_models", {}).get("default")
@@ -119,9 +120,9 @@ async def video_generator(
     
     # Only generate prompt if we have context to work with
     if final_context or video_prompt_guidelines or final_video_style:
-        output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"video_prompt": "Your detailed video generation prompt here"\n"""
+        output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text. Keep the video prompt detailed but concise (under 500 words).\n"video_prompt": "Your detailed video generation prompt here"\n"""
         prompt_data = {
-            "task": "Generate a detailed video prompt for AI video generation based on the provided style and context.",
+            "task": "Generate a detailed but concise video prompt for AI video generation based on the provided style and context. Focus on the most important visual elements, actions, and style. Keep the prompt under 500 words while being specific about camera movements, lighting, and key visual elements.",
             "context": final_context,
         }
         
