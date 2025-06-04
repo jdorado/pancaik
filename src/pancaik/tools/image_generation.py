@@ -243,6 +243,17 @@ async def _describe_image_for_prompt(input_image: Image.Image, agent_id: str, ac
     
     # Convert PIL image to base64 for vision model
     buffer = io.BytesIO()
+    
+    # Handle RGBA images by converting to RGB before saving as JPEG
+    if input_image.mode == 'RGBA':
+        # Create a white background and paste the RGBA image on it
+        rgb_image = Image.new('RGB', input_image.size, (255, 255, 255))
+        rgb_image.paste(input_image, mask=input_image.split()[-1])  # Use alpha channel as mask
+        input_image = rgb_image
+    elif input_image.mode not in ['RGB', 'L']:
+        # Convert other modes to RGB
+        input_image = input_image.convert('RGB')
+    
     input_image.save(buffer, format='JPEG')
     image_base64 = base64.b64encode(buffer.getvalue()).decode()
     
