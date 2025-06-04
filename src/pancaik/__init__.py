@@ -46,6 +46,9 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
                 - sleep_interval: Seconds to sleep between task runs (default: 60)
                 - add_tasks_endpoint: Whether to add the /tasks endpoint to the provided FastAPI app (default: False)
 
+            Webhook Settings:
+                - add_webhook_endpoint: Whether to add the /webhook endpoint for external triggers (default: False)
+
             Twitter Integration Settings:
                 - x_api_url: URL for the X-API service (required for Twitter functionality)
                 - twitter_concurrency: Maximum concurrent Twitter operations (default: 5)
@@ -55,7 +58,7 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
                 - pagerduty_key: PagerDuty integration/routing key (optional)
                 - pagerduty_inactive: Whether to disable PagerDuty alerts (default: False)
 
-        app: Optional FastAPI application to add routes to. Required if add_tasks_endpoint is True.
+        app: Optional FastAPI application to add routes to. Required if add_tasks_endpoint or add_webhook_endpoint is True.
 
     Raises:
         ValueError: If required configuration parameters are missing
@@ -98,19 +101,60 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
         task = asyncio.create_task(run_continuous_tasks(parallel=parallel, limit=task_limit, sleep_interval=sleep_interval))
         logger.info(f"Task runner started (limit={task_limit}, parallel={parallel}, sleep_interval={sleep_interval})")
 
-    # Add tasks endpoint if requested and app is provided
-    if app is not None and config.get("add_tasks_endpoint", False):
+    # Add endpoints if requested and app is provided
+    if app is not None:
         router = APIRouter()
 
-        @router.post("/tasks/")
-        async def tasks_post():
-            """
-            Trigger an immediate task run using settings from config
-            """
-            limit = config.get("task_limit", 100)
-            parallel = config.get("parallel", False)
-            await run_tasks(limit=limit, parallel=parallel)
-            return {"status": "success", "message": "Tasks executed"}
+        # Add tasks endpoint if requested
+        if config.get("add_tasks_endpoint", False):
+            @router.post("/tasks/")
+            async def tasks_post():
+                """
+                Trigger an immediate task run using settings from config
+                """
+                limit = config.get("task_limit", 100)
+                parallel = config.get("parallel", False)
+                await run_tasks(limit=limit, parallel=parallel)
+                return {"status": "success", "message": "Tasks executed"}
+
+        # Add webhook endpoint if requested
+        if config.get("add_webhook_endpoint", False):
+            from fastapi import HTTPException, Header, Request
+            from .core.webhook_handler import webhook
+
+            @router.post("/webhook/{agent_id}")
+            async def webhook_trigger(
+                agent_id: str,
+                request: Request,
+                authorization: str = Header(None)
+            ):
+                """
+                Trigger an agent execution via webhook with custom context.
+                
+                Args:
+                    agent_id: The ID of the agent to execute
+                    request: FastAPI request object containing JSON body
+                    authorization: Bearer token from Authorization header
+                
+                Returns:
+                    Execution result or error response
+                """
+                # Validate authorization header format
+                if not authorization or not authorization.startswith("Bearer "):
+                    raise HTTPException(status_code=401, detail="Missing or invalid Authorization header. Expected format: 'Bearer <token>'")
+                
+                # Extract token from authorization header
+                token = authorization[7:]  # Remove "Bearer " prefix
+                
+                # Get request body
+                try:
+                    body = await request.json()
+                except Exception:
+                    body = {}
+                
+                # Execute the agent via webhook
+                result = await webhook(agent_id, token, body)
+                return result
 
         app.include_router(router)
 

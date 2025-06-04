@@ -367,6 +367,11 @@ class Agent:
         if triggers_pipeline:
             assert isinstance(triggers_pipeline, list), "Pipeline from config.triggers must be a list"
             for trigger in triggers_pipeline:
+                # Skip webhook triggers - they are handled separately via webhook endpoint
+                if trigger.get("id") == "webhook":
+                    logger.info(f"Agent {self.id}: Skipping webhook trigger '{trigger['id']}' in schedule_next_run")
+                    continue
+                    
                 logger.info(f"Agent {self.id}: Starting execution of trigger '{trigger['id']}'")
                 result = await self.run_tool(trigger, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of trigger '{trigger['id']}'")
