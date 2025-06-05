@@ -39,6 +39,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
+import pymongo
 
 from .config import get_config, logger
 
@@ -370,58 +371,41 @@ class MongoDBHandler(logging.Handler):
     def __init__(self, ai_logger_instance: AILogger):
         super().__init__()
         self.ai_logger = ai_logger_instance
-        # Create an event loop for this thread
-        self._loop = None
-        self._thread_id = None
-
-    def _ensure_event_loop(self):
-        """Ensure we have an event loop in this thread."""
-        current_thread_id = threading.get_ident()
-        if self._thread_id != current_thread_id:
-            # We're in a new thread, create a new event loop
+        self._sync_collection = None
+    
+    def _get_sync_collection(self):
+        """Get a synchronous collection using the database connection string from config."""
+        if self._sync_collection is None:
             try:
-                self._loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # No event loop in this thread, create one
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-            self._thread_id = current_thread_id
+                # Get the database connection string from the existing config
+                db_connection = get_config('db_connection')
+                if db_connection and self.ai_logger._collection is not None:
+                    sync_client = pymongo.MongoClient(db_connection)
+                    # Use the same database and collection name as the async version
+                    db_name = self.ai_logger._collection.database.name
+                    collection_name = self.ai_logger._collection.name
+                    sync_db = sync_client[db_name]
+                    self._sync_collection = sync_db[collection_name]
+            except Exception as e:
+                print(f"AI Logger: Failed to create sync collection: {e}", file=sys.stderr)
+        return self._sync_collection
     
     def emit(self, record: logging.LogRecord) -> None:
-        """Emit a log record to MongoDB."""
+        """Emit a log record to MongoDB using synchronous operations."""
         try:
             if hasattr(record, 'ai_log_data'):
-                # This is an AI log record, write to MongoDB
-                if self.ai_logger._collection is not None:
-                    # Ensure we have an event loop
-                    self._ensure_event_loop()
-                    
-                    # Run the async write in this thread's event loop
+                # This is an AI log record, write to MongoDB synchronously
+                sync_collection = self._get_sync_collection()
+                if sync_collection is not None:
                     try:
-                        if self._loop and not self._loop.is_closed():
-                            # Create a task and run it
-                            coro = self._write_to_mongodb(record.ai_log_data)
-                            if self._loop.is_running():
-                                # Loop is already running, schedule the coroutine
-                                asyncio.run_coroutine_threadsafe(coro, self._loop)
-                            else:
-                                # Loop is not running, run the coroutine directly
-                                self._loop.run_until_complete(coro)
+                        result = sync_collection.insert_one(record.ai_log_data)
+                        # Only print success in debug mode
+                        if hasattr(self.ai_logger, '_debug_mode') and self.ai_logger._debug_mode:
+                            print(f"AI Logger: Successfully wrote log to MongoDB: {result.inserted_id}", file=sys.stderr)
                     except Exception as e:
-                        print(f"AI Logger: MongoDB write failed: {e}", file=sys.stderr)
+                        print(f"AI Logger: MongoDB write error: {e}", file=sys.stderr)
         except Exception as e:
             print(f"AI Logger emit error: {e}", file=sys.stderr)
-    
-    async def _write_to_mongodb(self, log_data: Dict[str, Any]) -> None:
-        """Write log data to MongoDB."""
-        try:
-            if self.ai_logger._collection is not None:
-                result = await self.ai_logger._collection.insert_one(log_data)
-                # Only print success in debug mode
-                if hasattr(self.ai_logger, '_debug_mode') and self.ai_logger._debug_mode:
-                    print(f"AI Logger: Successfully wrote log to MongoDB: {result.inserted_id}", file=sys.stderr)
-        except Exception as e:
-            print(f"AI Logger: MongoDB write error: {e}", file=sys.stderr)
 
 
 # Global singleton instance
