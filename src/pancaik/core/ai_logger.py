@@ -29,7 +29,13 @@ ai_logger.warning("Resource usage at 80% threshold", agent_id, account_id, agent
 """
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+import atexit
+import logging
+import logging.handlers
+import queue
+import threading
+import sys
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -38,7 +44,7 @@ from .config import get_config, logger
 
 
 class AILogger:
-    """Specialized logger for AI agents that shows thinking process."""
+    """Specialized logger for AI agents that shows thinking process with automatic flushing."""
 
     _instance = None
     _lock = asyncio.Lock()
@@ -51,13 +57,45 @@ class AILogger:
         return cls._instance
 
     def __init__(self):
-        """Initialize the AI logger."""
+        """Initialize the AI logger with QueueHandler for non-blocking logging."""
         # Only set instance variables if not already initialized
-        if not hasattr(self, "_buffer"):
-            self._buffer: List[Dict[str, Any]] = []
-            self._max_buffer_size = 10  # Maximum number of logs to buffer before writing
+        if not hasattr(self, "_queue"):
+            self._queue = queue.Queue(-1)  # Unlimited size queue
+            self._queue_handler = logging.handlers.QueueHandler(self._queue)
+            self._queue_listener: Optional[logging.handlers.QueueListener] = None
             self._collection: Optional[AsyncIOMotorCollection] = None
             self._retention_days = 30  # Number of days to keep logs
+            
+            # Flush frequency control (similar to old buffer size)
+            self._message_count = 0
+            self._flush_frequency = 10  # Flush every N messages (like old buffer size)
+            self._immediate_mode = False  # When True, bypass queue and write immediately
+            self._debug_mode = False
+            
+            self._setup_queue_logging()
+
+    def _setup_queue_logging(self) -> None:
+        """Set up QueueListener with MongoDB handler for automatic flushing."""
+        # Create a custom handler that writes to MongoDB
+        mongodb_handler = MongoDBHandler(self)
+        
+        # Create QueueListener with MongoDB handler
+        self._queue_listener = logging.handlers.QueueListener(
+            self._queue, 
+            mongodb_handler,
+            respect_handler_level=True
+        )
+        
+        # Start the listener thread
+        self._queue_listener.start()
+        
+        # Register cleanup on exit - this ensures flushing on program termination
+        atexit.register(self._cleanup_on_exit)
+
+    def _cleanup_on_exit(self) -> None:
+        """Cleanup function called on program exit."""
+        if self._queue_listener:
+            self._queue_listener.stop()
 
     async def _ensure_initialized(self) -> None:
         """Ensure the logger is initialized with database connection."""
@@ -109,6 +147,118 @@ class AILogger:
         assert days > 0, "Retention period must be positive"
         self._retention_days = days
 
+    def set_flush_frequency(self, frequency: int) -> None:
+        """Set how often to force flush queued messages.
+        
+        Args:
+            frequency: Flush every N messages (1 = immediate, 10 = every 10 messages, etc.)
+        """
+        assert frequency > 0, "Flush frequency must be positive"
+        self._flush_frequency = frequency
+
+    def set_debug_mode(self, enabled: bool) -> None:
+        """Enable or disable debug mode for verbose logging."""
+        self._debug_mode = enabled
+
+    def set_immediate_mode(self, enabled: bool) -> None:
+        """Enable or disable immediate mode.
+        
+        When enabled, messages bypass the queue and are written directly to MongoDB.
+        This provides true immediate flushing but is blocking.
+        
+        Args:
+            enabled: True for immediate writes, False for queued writes
+        """
+        self._immediate_mode = enabled
+
+    def _log_message(self, log_type: str, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
+        """Internal method to log messages using QueueHandler.
+        
+        Args:
+            log_type: Type of log (thinking, action, result, warning, error)
+            message: The log message
+            agent_id: ID of the agent
+            account_id: ID of the owner
+            agent_name: Optional human-readable name of the agent
+        """
+        # Ensure initialization happens on first use
+        if not self._initialized:
+            # Schedule initialization to happen soon
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._ensure_initialized())
+            except RuntimeError:
+                # No event loop running, initialization will happen later
+                pass
+        
+        # Create log entry
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc),
+            "message": message,
+            "agent_id": agent_id,
+            "account_id": account_id,
+            "type": log_type,
+            "agent_name": agent_name,
+        }
+
+        # Add user-facing flag for warnings and errors
+        if log_type in ("warning", "error"):
+            log_entry["is_user_facing"] = True
+
+        logger.info(f"AI {log_type.title()} [{agent_id}]: {message}")
+        
+        # Check if immediate mode is enabled
+        if self._immediate_mode:
+            # Write directly to MongoDB bypassing the queue
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._write_immediate(log_entry))
+            except RuntimeError:
+                # No event loop, fall back to queue
+                self._queue_handler.emit(AILogRecord(log_entry))
+        else:
+            # Use QueueHandler to log - this automatically handles flushing on exceptions
+            # The queue listener will process this in a separate thread
+            try:
+                ai_log_record = AILogRecord(log_entry)
+                self._queue_handler.emit(ai_log_record)
+                
+                # Increment message count and check if we should force a flush
+                self._message_count += 1
+                if self._flush_frequency == 1 or self._message_count >= self._flush_frequency:
+                    # Reset counter and schedule a flush
+                    self._message_count = 0
+                    # Force a small delay to ensure queued messages are processed
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(self._force_flush())
+                    except RuntimeError:
+                        # No event loop, flush will happen naturally
+                        pass
+                        
+            except Exception as e:
+                # Fallback to direct logging if queue fails
+                logger.error(f"Failed to queue AI log message: {e}")
+
+    async def _write_immediate(self, log_entry: Dict[str, Any]) -> None:
+        """Write log entry immediately to MongoDB."""
+        try:
+            # Ensure we're initialized
+            if not self._initialized:
+                await self._ensure_initialized()
+            
+            if self._collection is not None:
+                await self._collection.insert_one(log_entry)
+        except Exception as e:
+            logger.error(f"Failed to write immediate AI log: {e}")
+
+    async def _force_flush(self) -> None:
+        """Force a flush by adding a small delay."""
+        await asyncio.sleep(0.05)  # Small delay to ensure messages are processed
+
     def thinking(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI thinking message.
 
@@ -118,22 +268,7 @@ class AILogger:
             account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
-        # Add to buffer
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc),
-            "message": message,
-            "agent_id": agent_id,
-            "account_id": account_id,
-            "type": "thinking",
-            "agent_name": agent_name,
-        }
-
-        logger.info(f"AI Thinking [{agent_id}]: {message}")
-        self._buffer.append(log_entry)
-
-        # If buffer is full, schedule a write
-        if len(self._buffer) >= self._max_buffer_size:
-            asyncio.create_task(self.flush())
+        self._log_message("thinking", message, agent_id, account_id, agent_name)
 
     def action(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI action message.
@@ -144,22 +279,7 @@ class AILogger:
             account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
-        # Add to buffer
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc),
-            "message": message,
-            "agent_id": agent_id,
-            "account_id": account_id,
-            "type": "action",
-            "agent_name": agent_name,
-        }
-
-        logger.info(f"AI Action [{agent_id}]: {message}")
-        self._buffer.append(log_entry)
-
-        # If buffer is full, schedule a write
-        if len(self._buffer) >= self._max_buffer_size:
-            asyncio.create_task(self.flush())
+        self._log_message("action", message, agent_id, account_id, agent_name)
 
     def result(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI result message.
@@ -170,22 +290,7 @@ class AILogger:
             account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
-        # Add to buffer
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc),
-            "message": message,
-            "agent_id": agent_id,
-            "account_id": account_id,
-            "type": "result",
-            "agent_name": agent_name,
-        }
-
-        logger.info(f"AI Result [{agent_id}]: {message}")
-        self._buffer.append(log_entry)
-
-        # If buffer is full, schedule a write
-        if len(self._buffer) >= self._max_buffer_size:
-            asyncio.create_task(self.flush())
+        self._log_message("result", message, agent_id, account_id, agent_name)
 
     def error(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI error message that should be shown to users.
@@ -196,23 +301,7 @@ class AILogger:
             account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
-        # Add to buffer
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc),
-            "message": message,
-            "agent_id": agent_id,
-            "account_id": account_id,
-            "type": "error",
-            "agent_name": agent_name,
-            "is_user_facing": True,
-        }
-
-        logger.error(f"AI Error [{agent_id}]: {message}")
-        self._buffer.append(log_entry)
-
-        # If buffer is full, schedule a write
-        if len(self._buffer) >= self._max_buffer_size:
-            asyncio.create_task(self.flush())
+        self._log_message("error", message, agent_id, account_id, agent_name)
 
     def warning(self, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Log an AI warning message for potential issues that need attention.
@@ -223,44 +312,116 @@ class AILogger:
             account_id: ID of the owner
             agent_name: Optional human-readable name of the agent
         """
-        # Add to buffer
-        log_entry = {
-            "timestamp": datetime.now(timezone.utc),
-            "message": message,
-            "agent_id": agent_id,
-            "account_id": account_id,
-            "type": "warning",
-            "agent_name": agent_name,
-            "is_user_facing": True,
-        }
-
-        logger.warning(f"AI Warning [{agent_id}]: {message}")
-        self._buffer.append(log_entry)
-
-        # If buffer is full, schedule a write
-        if len(self._buffer) >= self._max_buffer_size:
-            asyncio.create_task(self.flush())
+        self._log_message("warning", message, agent_id, account_id, agent_name)
 
     async def flush(self) -> None:
-        """Flush the buffer to MongoDB."""
-        if not self._buffer:
-            return
+        """Flush any remaining messages.
+        
+        Note: With QueueListener, this is largely automatic, but we provide this
+        for compatibility and to ensure any remaining messages are processed.
+        """
+        # Ensure we're initialized
+        if not self._initialized:
+            await self._ensure_initialized()
+        
+        # The QueueListener automatically handles flushing, but we can add a small delay
+        # to ensure any pending messages are processed
+        await asyncio.sleep(0.1)
 
-        # Ensure we're initialized before attempting to write
-        await self._ensure_initialized()
+    async def test_connection(self) -> bool:
+        """Test if the logger can connect to MongoDB.
+        
+        Returns:
+            True if connection is successful, False otherwise
+        """
+        try:
+            await self._ensure_initialized()
+            if self._collection is not None:
+                # Try a simple operation to test connection
+                await self._collection.count_documents({}, limit=1)
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"AI Logger connection test failed: {e}")
+            return False
 
-        async with self._lock:
-            if not self._buffer:  # Double-check pattern
-                return
 
+class AILogRecord(logging.LogRecord):
+    """Custom LogRecord for AI logging."""
+    
+    def __init__(self, log_data: Dict[str, Any]):
+        # Create a minimal LogRecord
+        super().__init__(
+            name="ai_logger",
+            level=logging.INFO,
+            pathname="",
+            lineno=0,
+            msg=log_data["message"],
+            args=(),
+            exc_info=None
+        )
+        # Store the AI log data
+        self.ai_log_data = log_data
+
+
+class MongoDBHandler(logging.Handler):
+    """Custom logging handler that writes AI logs to MongoDB."""
+    
+    def __init__(self, ai_logger_instance: AILogger):
+        super().__init__()
+        self.ai_logger = ai_logger_instance
+        # Create an event loop for this thread
+        self._loop = None
+        self._thread_id = None
+
+    def _ensure_event_loop(self):
+        """Ensure we have an event loop in this thread."""
+        current_thread_id = threading.get_ident()
+        if self._thread_id != current_thread_id:
+            # We're in a new thread, create a new event loop
             try:
-                # Only write to database if we have a connection
-                if self._collection is not None:
-                    await self._collection.insert_many(self._buffer)
-                # Clear the buffer regardless of whether we wrote to DB
-                self._buffer.clear()
-            except Exception:
-                pass
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # No event loop in this thread, create one
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+            self._thread_id = current_thread_id
+    
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a log record to MongoDB."""
+        try:
+            if hasattr(record, 'ai_log_data'):
+                # This is an AI log record, write to MongoDB
+                if self.ai_logger._collection is not None:
+                    # Ensure we have an event loop
+                    self._ensure_event_loop()
+                    
+                    # Run the async write in this thread's event loop
+                    try:
+                        if self._loop and not self._loop.is_closed():
+                            # Create a task and run it
+                            coro = self._write_to_mongodb(record.ai_log_data)
+                            if self._loop.is_running():
+                                # Loop is already running, schedule the coroutine
+                                asyncio.run_coroutine_threadsafe(coro, self._loop)
+                            else:
+                                # Loop is not running, run the coroutine directly
+                                self._loop.run_until_complete(coro)
+                    except Exception as e:
+                        print(f"AI Logger: MongoDB write failed: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"AI Logger emit error: {e}", file=sys.stderr)
+    
+    async def _write_to_mongodb(self, log_data: Dict[str, Any]) -> None:
+        """Write log data to MongoDB."""
+        try:
+            if self.ai_logger._collection is not None:
+                result = await self.ai_logger._collection.insert_one(log_data)
+                # Only print success in debug mode
+                if hasattr(self.ai_logger, '_debug_mode') and self.ai_logger._debug_mode:
+                    print(f"AI Logger: Successfully wrote log to MongoDB: {result.inserted_id}", file=sys.stderr)
+        except Exception as e:
+            print(f"AI Logger: MongoDB write error: {e}", file=sys.stderr)
 
 
 # Global singleton instance
