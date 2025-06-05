@@ -89,13 +89,31 @@ async def twitter_publish_post(
     await semaphore.acquire()
     try:
         tweet = await twitter.create_tweet(**tweet_params)
+    except Exception as e:
+        raise e
     finally:
-        # Release the semaphore
+        # Always release the semaphore
         semaphore.release()
 
     if not tweet:
-        logger.error("Failed to publish tweet")
-        raise Exception("Failed to publish tweet")
+        error_msg = "Tweet creation returned None"
+        logger.error(error_msg)
+        ai_logger.error(error_msg, agent_id, account_id, agent_name)
+        return {
+            "status": "error", 
+            "message": error_msg,
+            "details": "No response from Twitter API"
+        }
+
+    if "id" not in tweet:
+        logger.error("Invalid tweet response format")
+        ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
+        return {"status": "error", "message": "Invalid tweet response format"}
+    tweet_id = tweet["id"]
+
+    # Index the tweet
+    username = twitter.get_username()
+    await indexing.twitter_index_by_id(twitter_connection=twitter_connection, tweet_id=tweet_id, data_store=data_store)
 
     # Mark interaction in database if we have an interaction type
     if interaction_type and selected_tweet:
@@ -121,16 +139,6 @@ async def twitter_publish_post(
                 logger.info(f"Marked post {post_id} as {db_interaction_type}")
             else:
                 logger.warning(f"Failed to mark post {post_id} as {db_interaction_type}")
-
-    if "id" not in tweet:
-        logger.error("Invalid tweet response format")
-        ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
-        return {"status": "error", "message": "Invalid tweet response format"}
-    tweet_id = tweet["id"]
-
-    # Index the tweet
-    username = twitter.get_username()
-    await indexing.twitter_index_by_id(twitter_connection=twitter_connection, tweet_id=tweet_id, data_store=data_store)
 
     # Postcondition - ensure we have the publishing results
     result = {

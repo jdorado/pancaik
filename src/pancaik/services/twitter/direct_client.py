@@ -143,10 +143,8 @@ async def send_tweet_raw(
     result = await post(url, body)
     if result and "rest_id" in result:
         result["id"] = result["rest_id"]
-        return result
-    elif result and "retweet" in result:
-        return result
-    return None
+
+    return result
 
 
 async def search_raw(query: str, credentials: Dict[str, str]) -> Optional[list]:
@@ -237,46 +235,51 @@ async def create_tweet(
         quote_id: ID of tweet to quote
         media_data: Media data to attach directly (alternative to images)
     """
-    try:
-        # Handle retweet case when text is empty but quote_id is provided
-        if not text and quote_id:
-            resp = await send_tweet_raw("", twitter, quote_tweet_id=quote_id, media_data=media_data)
-            if resp:
-                logger.info(f"TWEET: {twitter.get('username')} retweeted tweet {quote_id}")
-                return {"retweet": quote_id}
-            return None
-
-        # Process media if present (legacy image processing or direct media data)
+    assert twitter, "Twitter credentials must not be empty"
+    username = twitter.get('username', 'Unknown')
+    
+    # Determine tweet type and prepare request
+    if not text and quote_id:
+        # Handle retweet case (empty text with quote_id)
+        resp = await send_tweet_raw("", twitter, quote_tweet_id=quote_id, media_data=media_data)
+    else:
+        # Handle regular tweet with optional media
         if media_data is not None:
             # Use media_data directly
             resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id, media_data=media_data)
         elif images:
             # Legacy image processing
-            media_ids = await process_images(twitter, images)
+            # media_ids = await process_images(twitter, images)
             resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
         else:
             # No media
             resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
-            
-        if resp and "id" in resp:
-            url = f"https://x.com/A/status/{resp['id']}"
-            logger.info(f"TWEET: {twitter.get('username')} published {url}")
-            return resp
-        elif resp and "retweet" in resp:
-            logger.info(f"TWEET: {twitter.get('username')} published retweet {resp['retweet']}")
-            return resp
-
-    except Exception as e:
-        if "duplicate" in str(e):
-            raise e
-        else:
-            logger.error(f"Tweet creation error for user '{twitter.get('username', 'Unknown')}': {e}")
-            raise e
-    return None
+    
+    # Handle response - either return success or raise with error message
+    if not resp:
+        raise Exception("Empty response from API")
+    elif "error" in resp:
+        # Pass through the error message from the API
+        error_msg = resp.get("error", "Unknown error")
+        raise Exception(error_msg)
+    elif "id" in resp:
+        url = f"https://x.com/A/status/{resp['id']}"
+        logger.info(f"TWEET: {username} published {url}")
+        return resp
+    elif "retweet" in resp:
+        logger.info(f"TWEET: {username} published retweet {resp['retweet']}")
+        return resp
+    elif not text and quote_id:
+        # Special case: retweet successful but returned with quote_id format
+        logger.info(f"TWEET: {username} retweeted tweet {quote_id}")
+        return {"retweet": quote_id}
+    else:
+        raise Exception(f"Unexpected response format: {resp}")
 
 
 async def create_thread(twitter: Dict, texts: List[str], image_urls: Union[str, List[str]] = None) -> Optional[int]:
     """Create a thread of tweets."""
+    # TODO: Implement thread creation
     if not texts:
         logger.warning(f"No texts provided for thread by user '{twitter.get('username', 'Unknown')}'.")
         return None
