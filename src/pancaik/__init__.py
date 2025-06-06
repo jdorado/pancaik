@@ -58,6 +58,9 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
                 - pagerduty_key: PagerDuty integration/routing key (optional)
                 - pagerduty_inactive: Whether to disable PagerDuty alerts (default: False)
 
+            Firecrawl Integration Settings:
+                - firecrawl_api_key: Firecrawl API key for website crawling (optional)
+
         app: Optional FastAPI application to add routes to. Required if add_tasks_endpoint or add_webhook_endpoint is True.
 
     Raises:
@@ -91,6 +94,9 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
     # Set PagerDuty configuration
     set_config("pagerduty_key", config.get("pagerduty_key"))
     set_config("pagerduty_inactive", config.get("pagerduty_inactive", False))
+
+    # Set Firecrawl configuration
+    set_config("firecrawl_api_key", config.get("firecrawl_api_key"))
 
     # Start continuous task runner if configured
     task = None
