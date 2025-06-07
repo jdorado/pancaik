@@ -16,7 +16,7 @@ from ..utils.cache_decorator import cache_with_expiration
 
 @tool
 @cache_with_expiration(
-    exclude_params=["data_store"]  # Exclude data_store as it contains dynamic state
+    exclude_params=["data_store"]  # Exclude dynamic data_store, but include context in cache
 )
 async def research(
     research_prompt: str, 
@@ -24,7 +24,8 @@ async def research(
     data_store: Dict[str, Any], 
     topic_selection: Optional[Dict[str, str]] = None,
     context_selection: Optional[str] = None,
-    reset_context: bool = True
+    reset_context: bool = True,
+    context: Optional[Dict[str, Any]] = None  # Include context in cache key
 ):
     """
     Performs research using Perplexity.
@@ -39,6 +40,7 @@ async def research(
                            If 'topic_selector_only', includes only topic_selection.
         reset_context: If True, previous context will be reset and the research output will become 
                        the new context for the agent. Default is True.
+        context: Context data from agent (auto-populated from data_store.context)
 
     Returns:
         Dictionary containing operation status and research results in values
@@ -53,6 +55,10 @@ async def research(
     agent_name = config.get("name")
     assert account_id, "account_id must be provided in data_store config"
 
+    # Use context parameter if provided, otherwise fallback to data_store
+    if context is None:
+        context = data_store.get("context", {})
+
     today_date = datetime.utcnow().strftime("%Y-%m-%d")
 
     ai_logger.thinking(f"Starting research on: {research_prompt[:100]}...", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
@@ -66,7 +72,7 @@ async def research(
     
     # Handle context based on context_selection parameter
     if context_selection == "full_context":
-        prompt_data["context"] = data_store.get("context", {})
+        prompt_data["context"] = context
         # Add topic selection if provided
         if topic_selection and isinstance(topic_selection, dict):
             if "topic" in topic_selection and "full_background" in topic_selection:
@@ -91,8 +97,8 @@ async def research(
             agent_name=agent_name
         )
     else:
-        # Default behavior - include data_store context
-        prompt_data["context"] = data_store.get("context", {})
+        # Default behavior - include context
+        prompt_data["context"] = context
         
         # Add topic selection if provided
         if topic_selection and isinstance(topic_selection, dict):
