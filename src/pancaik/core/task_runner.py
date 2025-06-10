@@ -1,11 +1,8 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
 
 from .agent import Agent
 from .agent_handler import AgentHandler
-from .ai_logger import ai_logger
 from .config import logger
-from pancaik.utils.pagerduty import send_alert
 
 
 async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
@@ -40,118 +37,9 @@ async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
         agent_list.append(agent)
 
     if parallel:
-        await asyncio.gather(*[execute_task(agent) for agent in agent_list])
+        await asyncio.gather(*[agent.execute() for agent in agent_list])
     else:
         for agent in agent_list:
-            await execute_task(agent)
+            await agent.execute()
 
 
-async def execute_task(agent: Agent) -> None:
-    """
-    Execute a single agent's task.
-
-    Args:
-        agent: The agent instance to execute
-    """
-    # Precondition: agent must be a valid Agent instance
-    assert isinstance(agent, Agent), "Must provide a valid Agent instance"
-
-    agent_id = agent.id
-    logger.info(f"Executing agent {agent_id}")
-
-    # Mark agent as running
-    await AgentHandler.update_agent_status(agent_id, "running")
-
-    try:
-        # Run the agent
-        result = await agent.run()
-
-        # Handle retry output if specified
-        if isinstance(result, dict) and "retry" in result:
-            retry_minutes = result["retry"]
-            current_time = datetime.now(timezone.utc)
-            next_run = current_time + timedelta(minutes=retry_minutes)
-            await AgentHandler.update_agent_status(agent_id, "scheduled", {"next_run": next_run})
-            return result
-
-        # Update agent status with successful completion and last run time
-        current_time = datetime.now(timezone.utc)
-        await AgentHandler.update_agent_status(
-            agent_id, "completed", {"last_run": current_time, "error": None, "retry_count": 0, "next_run": None}
-        )
-
-        # Schedule next run
-        await agent.schedule_next_run(last_run=current_time)
-
-        # Send resolution alert after scheduling
-        await send_alert(
-            event=f"{agent_id}: ({agent.config['name']}) completed successfully",
-            dedup_key=agent_id,
-            is_resolve=True,
-            severity="info"
-        )
-
-        return result
-    except Exception as e:
-        error_message = f"{agent_id}: {str(e)}"
-        logger.error(error_message)
-
-        retry_count = agent.retry_count + 1
-        retry_policy = agent.retry_policy
-        current_time = datetime.now(timezone.utc)
-
-        # Default retry policy values - exponential backoff with more retries
-        base_retry_minutes = 10  # Start with 10 minutes
-        max_retries = 10  # Increased from 5 to 10
-
-        # Only skip retries if retry_policy is explicitly False
-        if retry_policy is False:
-            logger.info(f"Agent {agent_id} has retry_policy=False, not scheduling retry")
-            await AgentHandler.update_agent_status(
-                agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
-            )
-            return None
-
-        # If retry_policy is a dict, check for custom base_minutes and max_retries parameters
-        if isinstance(retry_policy, dict):
-            base_retry_minutes = retry_policy.get("base_minutes", base_retry_minutes)
-            max_retries = retry_policy.get("max_retries", max_retries)
-
-        # Calculate exponential backoff: base_minutes * (2 ^ (retry_count - 1))
-        # Cap at 8 hours (480 minutes) to prevent extremely long delays
-        retry_minutes = min(base_retry_minutes * (2 ** (retry_count - 1)), 480)
-
-        # Invariant: retry parameters must be non-negative
-        assert base_retry_minutes >= 0, "Base retry minutes must be a non-negative value"
-        assert max_retries >= 0, "Max retries must be a non-negative value"
-
-        # Check if we've reached the maximum number of retries
-        if retry_count >= max_retries:
-            logger.info(f"Agent {agent_id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
-            await agent.deactivate() # In order to stop any sub-agents
-            await AgentHandler.update_agent_status(
-                agent_id, "failed", {"error": str(e), "retry_count": retry_count, "next_run": None, "is_active": False}
-            )
-            # Send critical alert for complete failure
-            await send_alert(
-                event=f"{agent_id}: ({agent.config['name']}) failed permanently",
-                dedup_key=agent_id,
-                details={
-                    "error": str(e),
-                    "retry_count": retry_count,
-                    "max_retries": max_retries
-                },
-                severity="error"
-            )
-            return None
-
-        # Schedule next run and update status with retry information
-        await AgentHandler.update_agent_status(
-            agent_id,
-            "scheduled",
-            {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
-        )
-        logger.info(f"Scheduled retry for agent {agent_id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
-    finally:
-        # Flush any buffered AI logs
-        await ai_logger.flush()

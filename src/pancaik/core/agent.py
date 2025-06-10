@@ -1,5 +1,5 @@
 import inspect
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Tuple
 
 from bson import ObjectId
@@ -7,6 +7,7 @@ from bson import ObjectId
 from ..tools.base import _GLOBAL_TOOLS
 from .agent_handler import AgentHandler
 from .config import logger
+from ..utils.pagerduty import send_alert
 
 
 class Agent:
@@ -112,18 +113,7 @@ class Agent:
         """Get the current retry count for this agent."""
         return self.config.get("retry_count", 0)
 
-    @property
-    def retry_policy(self) -> Dict[str, Any] | bool:
-        """Get the retry policy for this agent.
 
-        Returns:
-            Dict with retry configuration or False if retries are disabled
-        """
-        policy = self.config.get("retry_policy")
-        if policy is None:
-            # Default retry policy
-            return {"minutes": 10, "max_retries": 5}
-        return policy
 
     async def run_tool(self, tool_id: str | dict, **kwargs):
         """Run a tool with the given tool_id and kwargs.
@@ -280,8 +270,27 @@ class Agent:
         Returns:
             Result of the execution (data_store)
         """
-        # Initialize/update data store
-        self.data_store.update(kwargs)
+        # Check if this is a resumed execution
+        resume_from_step = kwargs.get("resume_from_step", 0)
+        
+        # Initialize/update data store - preserve existing state if resuming
+        if resume_from_step > 0:
+            # Only update with new kwargs, preserving existing context/outputs
+            logger.info(f"Agent {self.id}: Preserving existing state while resuming from step {resume_from_step}")
+            # Don't override context and outputs that were restored
+            preserved_context = self.data_store.get("context", {})
+            preserved_outputs = self.data_store.get("outputs", {})
+            
+            self.data_store.update(kwargs)
+            
+            # Restore preserved state
+            if preserved_context:
+                self.data_store["context"] = preserved_context
+            if preserved_outputs:
+                self.data_store["outputs"] = preserved_outputs
+        else:
+            # Normal initialization for new executions
+            self.data_store.update(kwargs)
 
         # Validate data store initialization
         assert "config" in self.data_store and "agent_id" in self.data_store, "Data store must contain config and agent_id"
@@ -290,10 +299,40 @@ class Agent:
         tools_pipeline = self.config.get("tools", [])
         if tools_pipeline:
             assert isinstance(tools_pipeline, list), "Pipeline from config.tools must be a list"
-            for step in tools_pipeline:
-                logger.info(f"Agent {self.id}: Starting execution of step '{step['id']}'")
-                result = await self.run_tool(step, **kwargs)
-                logger.info(f"Agent {self.id}: Completed execution of step '{step['id']}'")
+            
+            # Start from the specified step index (0-based)
+            for step_index, step in enumerate(tools_pipeline):
+                # Skip steps if we're resuming from a later step
+                if step_index < resume_from_step:
+                    logger.info(f"Agent {self.id}: Skipping step {step_index} '{step['id']}' (resuming from step {resume_from_step})")
+                    continue
+                    
+                logger.info(f"Agent {self.id}: Starting execution of step {step_index} '{step['id']}'")
+                
+                # Pass resume info if this is the step we're resuming from
+                step_kwargs = kwargs.copy()
+                if step_index == resume_from_step:
+                    step_kwargs["resuming_from_step"] = step["id"]
+                    step_kwargs["is_resuming"] = True
+                    logger.info(f"Agent {self.id}: Resuming step '{step['id']}' from processing mode")
+                
+                result = await self.run_tool(step, **step_kwargs)
+                logger.info(f"Agent {self.id}: Completed execution of step {step_index} '{step['id']}'")
+                
+                # Check for processing flag
+                if isinstance(result, dict) and result.get("should_process", False):
+                    process_minutes = result.get("process_minutes", 10)  # Default 10 minutes
+                    next_step = step_index  # Resume from current step
+                    
+                    logger.info(f"Agent {self.id}: Entering processing mode after step '{step['id']}' for {process_minutes} minutes. Will resume from step {next_step}")
+                    
+                    # Schedule the resumption
+                    await self._schedule_processing(process_minutes, next_step)
+                    
+                    # Return early to enter processing mode
+                    return {"processing": True, "resume_from_step": next_step, "process_minutes": process_minutes}
+                
+                # Check for exit flag (existing behavior)
                 if isinstance(result, dict) and result.get("should_exit", False):
                     logger.warning(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
                     return self.data_store
@@ -302,7 +341,7 @@ class Agent:
         if simulate:
             return self.data_store
 
-        # 2. Process outputs
+        # 2. Process outputs (only if we completed all tools or resumed past the tools phase)
         outputs_pipeline = self.config.get("outputs", [])
         if outputs_pipeline:
             assert isinstance(outputs_pipeline, list), "Pipeline from config.outputs must be a list"
@@ -342,6 +381,47 @@ class Agent:
                 logger.info(f"Agent {self.id}: No outputs from outputs phase to save to database")
 
         return self.data_store
+
+    async def _schedule_processing(self, process_minutes: int, resume_from_step: int):
+        """
+        Schedule the agent to resume execution after a processing period.
+        Saves current context and outputs to be restored on resume.
+        
+        Args:
+            process_minutes: Number of minutes to wait for processing
+            resume_from_step: Step index to resume from (0-based)
+        """
+        from datetime import datetime, timezone, timedelta
+        
+        # Calculate the resume time
+        current_time = datetime.now(timezone.utc)
+        resume_time = current_time + timedelta(minutes=process_minutes)
+        
+        # Prepare processing state to save
+        processing_state = {
+            "context": self.data_store.get("context", {}),
+            "outputs": self.data_store.get("outputs", {}),
+            "data_store_keys": {k: v for k, v in self.data_store.items() 
+                              if k not in ["context", "outputs", "config", "agent_id"]}
+        }
+        
+        # Update agent with processing information and state (keep status as "scheduled")
+        await AgentHandler.update_agent_status(
+            self.id,
+            "scheduled",
+            {
+                "next_run": resume_time,
+                "resume_from_step": resume_from_step,
+                "processing_started_at": current_time,
+                "process_minutes": process_minutes,
+                "processing_state": processing_state,
+                "error": None,
+                "retry_count": 0,
+            }
+        )
+        
+        logger.info(f"Agent {self.id}: Scheduled to resume at {resume_time} from step {resume_from_step}")
+        logger.info(f"Agent {self.id}: Saved processing state with {len(processing_state['context'])} context items and {len(processing_state['outputs'])} outputs")
 
     async def schedule_next_run(self, **kwargs):
         """
@@ -613,3 +693,172 @@ class Agent:
         # Sort by creation timestamp
         all_values.sort(key=lambda x: x["created_at"])
         return all_values
+
+    async def execute(self, no_retry: bool = False, **kwargs):
+        """
+        Execute a single agent's task with full lifecycle management including:
+        - Status tracking (running, completed, failed)
+        - Error handling and retry logic (unless no_retry=True)
+        - Alert notifications
+        - Scheduling next run (unless no_retry=True)
+        - Processing mode and resumption handling
+
+        Args:
+            no_retry: If True, disables retry logic and scheduling for manual runs
+            **kwargs: Parameters to pass to the agent execution
+
+        Returns:
+            Result of the execution (data_store) or None if failed permanently
+        """
+        from .ai_logger import ai_logger
+
+        logger.info(f"Executing agent {self.id}")
+
+        # Check if this agent is resuming from processing
+        resume_from_step = self.config.get("resume_from_step", 0) or 0
+        processing_state = self.config.get("processing_state")
+        
+        if resume_from_step > 0:
+            logger.info(f"Agent {self.id}: Resuming execution from step {resume_from_step}")
+            kwargs["resume_from_step"] = resume_from_step
+            
+            # Restore processing state if available
+            if processing_state:
+                logger.info(f"Agent {self.id}: Restoring processing state")
+                
+                # Restore context with metadata
+                if "context" in processing_state and processing_state["context"]:
+                    self.data_store["context"] = processing_state["context"]
+                    logger.info(f"Agent {self.id}: Restored {len(processing_state['context'])} context items")
+                
+                # Restore outputs with metadata  
+                if "outputs" in processing_state and processing_state["outputs"]:
+                    self.data_store["outputs"] = processing_state["outputs"]
+                    logger.info(f"Agent {self.id}: Restored {len(processing_state['outputs'])} output items")
+                
+                # Restore other data_store keys
+                if "data_store_keys" in processing_state and processing_state["data_store_keys"]:
+                    self.data_store.update(processing_state["data_store_keys"])
+                    logger.info(f"Agent {self.id}: Restored {len(processing_state['data_store_keys'])} additional data store keys")
+            
+            # Clear the resume_from_step and processing_state from config after using them
+            await AgentHandler.update_agent(self.id, {
+                "resume_from_step": None,
+                "processing_state": None
+            })
+
+        # Mark agent as running
+        await AgentHandler.update_agent_status(self.id, "running")
+
+        try:
+            # Run the agent
+            result = await self.run(**kwargs)
+
+            # Check if the agent is in processing mode
+            if isinstance(result, dict) and result.get("processing", False):
+                logger.info(f"Agent {self.id}: Execution in processing mode, will resume from step {result.get('resume_from_step')}")
+                # Don't schedule next run or send alerts for processing agents
+                return result
+
+            # Update agent status with successful completion and last run time
+            current_time = datetime.now(timezone.utc)
+            await AgentHandler.update_agent_status(
+                self.id, "completed", {
+                    "last_run": current_time, 
+                    "error": None, 
+                    "retry_count": 0, 
+                    "next_run": None,
+                    "resume_from_step": None,  # Clear any remaining resume info
+                    "processing_state": None,  # Clear any remaining processing state
+                    "processing_started_at": None,  # Clear processing metadata
+                    "process_minutes": None
+                }
+            )
+
+            # Schedule next run (unless this is a manual run)
+            if not no_retry:
+                await self.schedule_next_run(last_run=current_time)
+
+                # Send resolution alert after scheduling
+                await send_alert(
+                    event=f"{self.id}: ({self.config['name']}) completed successfully",
+                    dedup_key=self.id,
+                    is_resolve=True,
+                    severity="info"
+                )
+
+            return result
+        except Exception as e:
+            error_message = f"{self.id}: {str(e)}"
+            logger.error(error_message)
+
+            retry_count = self.retry_count + 1
+            current_time = datetime.now(timezone.utc)
+
+            # Hardcoded retry policy values - exponential backoff
+            base_retry_minutes = 10  # Start with 10 minutes
+            max_retries = 10  # Maximum retry attempts
+
+            # Calculate exponential backoff: base_minutes * (2 ^ (retry_count - 1))
+            # Cap at 8 hours (480 minutes) to prevent extremely long delays
+            retry_minutes = min(base_retry_minutes * (2 ** (retry_count - 1)), 480)
+
+            # Invariant: retry parameters must be non-negative
+            assert base_retry_minutes >= 0, "Base retry minutes must be a non-negative value"
+            assert max_retries >= 0, "Max retries must be a non-negative value"
+
+            # If no_retry is True, don't attempt retries - just fail and re-raise
+            if no_retry:
+                logger.info(f"Agent {self.id} failed during manual run (no_retry=True), not scheduling retry")
+                await AgentHandler.update_agent_status(
+                    self.id, "failed", {
+                        "error": str(e), 
+                        "retry_count": 0,  # Reset retry count for manual runs
+                        "next_run": None,
+                        "resume_from_step": None,  # Clear any remaining resume info
+                        "processing_state": None,  # Clear any remaining processing state
+                        "processing_started_at": None,  # Clear processing metadata
+                        "process_minutes": None
+                    }
+                )
+                raise  # Re-raise the exception for the caller to handle
+
+            # Check if we've reached the maximum number of retries
+            if retry_count >= max_retries:
+                logger.info(f"Agent {self.id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
+                await self.deactivate() # In order to stop any sub-agents
+                await AgentHandler.update_agent_status(
+                    self.id, "failed", {
+                        "error": str(e), 
+                        "retry_count": retry_count, 
+                        "next_run": None, 
+                        "is_active": False,
+                        "resume_from_step": None,  # Clear any remaining resume info
+                        "processing_state": None,  # Clear any remaining processing state
+                        "processing_started_at": None,  # Clear processing metadata
+                        "process_minutes": None
+                    }
+                )
+                # Send critical alert for complete failure
+                await send_alert(
+                    event=f"{self.id}: ({self.config['name']}) failed permanently",
+                    dedup_key=self.id,
+                    details={
+                        "error": str(e),
+                        "retry_count": retry_count,
+                        "max_retries": max_retries
+                    },
+                    severity="error"
+                )
+                return None
+
+            # Schedule next run and update status with retry information
+            await AgentHandler.update_agent_status(
+                self.id,
+                "scheduled",
+                {"error": str(e), "retry_count": retry_count, "next_run": current_time + timedelta(minutes=retry_minutes)},
+            )
+            logger.info(f"Scheduled retry for agent {self.id} (attempt {retry_count}/{max_retries}) in {retry_minutes} minutes")
+        finally:
+            # Flush any buffered AI logs
+            await ai_logger.flush()

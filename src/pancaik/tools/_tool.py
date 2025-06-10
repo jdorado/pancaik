@@ -6,12 +6,45 @@ This module provides a template for creating new tools using the @tool decorator
 # - Tool is always async, no nested functions, keep it simple
 # - Return {values: {context: {new_key: new_value}}} and use descriptive, globally-unique keys
 # - Add 'should_exit': True to the return dict to gracefully end the pipeline when needed
+# - Add 'should_process': True and 'process_minutes': X to enter processing mode and resume from next step
 # - Use a proper name to identify the output in a global context (avoid ambiguous names)
 # - Do NOT use try/catch in the tool (the @tool decorator handles exceptions)
 # - Follow the sample code pattern and keep code modular, clear, and open source quality
+
+## Processing Mode Feature Usage:
+
+When a tool returns 'should_process': True, the agent will:
+1. Save current state (context, outputs, and other data_store items)
+2. Schedule resumption after 'process_minutes' (default: 10)
+3. Agent status remains "scheduled" but with resume_from_step set (indicating processing mode)
+4. Resume execution from the current step in the pipeline
+5. Restore all saved state (context, outputs, data_store)
+6. Continue with remaining steps
+7. Clear all resume info when pipeline completes or fails permanently
+
+State Preservation:
+- All context items with their metadata are saved and restored
+- All outputs with their metadata are saved and restored
+- Other data_store items are preserved across processing mode
+- The restored state is available to subsequent tools
+
+Example scenarios:
+- Making async API calls that need time to process
+- Waiting for external systems to respond
+- Rate limiting / throttling
+- Waiting for user interactions to complete
+
+Example: Agent with tools [A, B, C, D]
+- Step A completes normally, adds context: {"step_a_result": "value1"}
+- Step B returns should_process=True, process_minutes=15, adds context: {"step_b_result": "value2"}
+- Agent enters processing mode, saves ALL context and outputs to database
+- Agent resumes after 15 minutes and re-executes Step B (current step)
+- Step B can check if processing completed and proceed, or continue processing
+- Steps C and D execute normally with full context available
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from datetime import datetime, timezone
 
 from ..core.config import logger
 from ..utils.ai_router import get_completion
@@ -22,54 +55,203 @@ from .base import tool
 
 # Example: Register this tool for a specific agent by passing agents=["agent_example"]
 @tool() # leave like this no extras
-async def sample_tool(data_store: Dict[str, Any], param1: str, param2: int) -> Dict[str, Any]:
+async def sample_tool(
+    data_store: Dict[str, Any],
+    sample_param: str = "default_value",
+    resuming_from_step: Optional[str] = None,
+    is_resuming: bool = False
+) -> Dict[str, Any]:
     """
-    Sample tool that demonstrates the required structure for Pancaik tools, including both context and output.
-    Also demonstrates using get_prompt and get_completion for LLM processing, including passing the full context from data_store.
-
+    Sample tool demonstrating the basic pattern for Pancaik tools.
+    
+    This tool shows how to:
+    - Access data_store for context and configuration
+    - Use AI completion for processing
+    - Return structured data with context and output
+    - Control pipeline flow with should_exit and should_suspend flags
+    
     Args:
-        data_store: Agent's data store containing configuration and state
-        param1: Example string parameter
-        param2: Example integer parameter
-
+        data_store: Agent's data store containing context, config, etc.
+        sample_param: Example parameter with default value
+        resuming_from_step: Name of the step being resumed from (if resuming)
+        is_resuming: Whether this tool is being resumed from processing mode
+        
     Returns:
-        Dictionary with operation status and values for context and output
+        Dictionary with tool results and optional flow control flags
     """
-    # Preconditions (Design by Contract)
-    assert data_store is not None, "data_store must be provided"
-    assert isinstance(param1, str) and param1, "param1 must be a non-empty string"
-    assert isinstance(param2, int), "param2 must be an integer"
-
+    # Extract common context for logging and AI operations
     agent_id = data_store.get("agent_id")
     config = data_store.get("config", {})
-    agent_name = config.get("name")
-    logger.info(f"Running sample_tool for agent {agent_id} ({agent_name}) with param1={param1}, param2={param2}")
-
-    # --- Tool logic: LLM prompt example ---
-    output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"result": "Your result here"\n"""
+    agent_name = config.get("name", "unknown")
+    
+    logger.info(f"Running sample_tool for agent {agent_id} ({agent_name})")
+    
+    # Check if resuming from this step
+    if is_resuming and resuming_from_step == "sample_tool":
+        logger.info(f"Resuming sample_tool - checking if processing completed")
+        
+        # Example: Check if our processing is done
+        processing_completed = True  # Replace with actual status check
+        
+        if not processing_completed:
+            # Still processing, continue waiting
+            return {
+                "should_process": True,
+                "process_minutes": 5,
+                "values": {
+                    "context": {
+                        "sample_tool_status": "still_processing",
+                        "check_timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                }
+            }
+        else:
+            # Processing completed, return results
+            return {
+                "values": {
+                    "context": {
+                        "sample_tool_status": "completed",
+                        "completion_timestamp": datetime.now(timezone.utc).isoformat()
+                    },
+                    "output": {
+                        "processing_completed": True,
+                        "status": "success"
+                    }
+                }
+            }
+    
+    # Example: Access agent context
+    context = data_store.get("context", {})
+    
+    # Example: Use AI for processing
     prompt_data = {
-        "task": "Repeat the input string in uppercase N times.",
-        "input_string": param1,
-        "repeat_count": param2,
-        "context": data_store.get("context", {}),
-        "output_format": output_format,
+        "task": f"Process the sample parameter: {sample_param}",
+        "context": context,
+        "agent_name": agent_name
     }
+    
     prompt = get_prompt(prompt_data)
     model_id = config.get("ai_models", {}).get("default")
     response = await get_completion(prompt=prompt, model_id=model_id)
-
-    # Parse the response as strict JSON
-    parsed_response = extract_json_content(response) or {}
-
-    context = {"llm_processed": parsed_response}
-
-    # Postconditions (Design by Contract)
-    assert "llm_processed" in context, "Context must contain 'llm_processed' key"
-
-    # Return in the required format for Pancaik tools
-    return {
-        "values": {
-            "context": context,
-            "output": context,
-        },
+    
+    # Parse AI response
+    processed_result = extract_json_content(response) or {"result": response}
+    
+    # Example conditional flow control based on your business logic
+    should_process_execution = sample_param == "process_test"  # Example condition
+    should_exit_pipeline = sample_param == "exit_test"        # Example condition
+    
+    # Prepare context updates
+    context_updates = {
+        "sample_tool_result": processed_result,
+        "sample_param_processed": sample_param,
+        "last_tool_execution": "sample_tool"
     }
+    
+    # Prepare output data
+    output_data = {
+        "tool_name": "sample_tool",
+        "processed_data": processed_result,
+        "status": "completed"
+    }
+    
+    # Build result dictionary
+    result = {
+        "values": {
+            "context": context_updates,
+            "output": output_data
+        }
+    }
+    
+    # Example: Exit pipeline early if condition is met
+    if should_exit_pipeline:
+        result["should_exit"] = True
+        logger.info(f"sample_tool for agent {agent_id}: Exiting pipeline early")
+    
+    # Example: Enter processing mode to resume from next step after delay
+    elif should_process_execution:
+        result["should_process"] = True
+        result["process_minutes"] = 15  # Resume after 15 minutes
+        logger.info(f"sample_tool for agent {agent_id}: Entering processing mode for 15 minutes")
+    
+    return result
+
+@tool()
+async def processing_demo_tool(
+    data_store: Dict[str, Any],
+    action: str = "prepare",  # "prepare" or "check"
+    process_minutes: int = 1
+) -> Dict[str, Any]:
+    """
+    Demonstration tool showing how state is preserved across processing mode.
+    
+    Use action="prepare" to add context and enter processing mode.
+    Use action="check" to verify the context was preserved.
+    
+    Args:
+        data_store: Agent's data store
+        action: Either "prepare" (adds context + enters processing mode) or "check" (verifies context)
+        process_minutes: Minutes to wait in processing mode if action="prepare"
+        
+    Returns:
+        Dictionary with results and optional processing flag
+    """
+    agent_id = data_store.get("agent_id")
+    context = data_store.get("context", {})
+    
+    if action == "prepare":
+        # Add some context that should be preserved
+        context_updates = {
+            "processing_demo_timestamp": datetime.now(timezone.utc).isoformat(),
+            "processing_demo_data": "This data should survive processing mode",
+            "processing_demo_counter": context.get("processing_demo_counter", 0) + 1
+        }
+        
+        result = {
+            "should_process": True,
+            "process_minutes": process_minutes,
+            "values": {
+                "context": context_updates,
+                "output": {
+                    "action": "prepared_for_processing",
+                    "context_added": list(context_updates.keys())
+                }
+            }
+        }
+        
+        logger.info(f"Agent {agent_id}: Prepared context for processing mode - will process for {process_minutes} minutes")
+        
+    elif action == "check":
+        # Check if the context was preserved
+        demo_timestamp = context.get("processing_demo_timestamp")
+        demo_data = context.get("processing_demo_data") 
+        demo_counter = context.get("processing_demo_counter", 0)
+        
+        preserved = demo_timestamp is not None and demo_data is not None
+        
+        result = {
+            "values": {
+                "context": {
+                    "processing_demo_verified": preserved,
+                    "verification_timestamp": datetime.now(timezone.utc).isoformat()
+                },
+                "output": {
+                    "action": "verified_processing_state",
+                    "context_preserved": preserved,
+                    "demo_timestamp": demo_timestamp,
+                    "demo_data": demo_data,
+                    "demo_counter": demo_counter,
+                    "status": "success" if preserved else "failed"
+                }
+            }
+        }
+        
+        if preserved:
+            logger.info(f"Agent {agent_id}: ✅ Context was preserved across processing mode!")
+        else:
+            logger.warning(f"Agent {agent_id}: ❌ Context was NOT preserved across processing mode")
+            
+    else:
+        raise ValueError(f"Invalid action '{action}'. Must be 'prepare' or 'check'")
+    
+    return result

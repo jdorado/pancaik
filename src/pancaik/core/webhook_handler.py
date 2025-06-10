@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from .agent import Agent
 from .agent_handler import AgentHandler
 from .config import logger
-from .task_runner import execute_task
 from ..tools.base import tool
 
 
@@ -89,7 +88,7 @@ async def webhook(agent_id: str, token: str, context_data: Dict[str, Any]) -> Di
         
         # Execute the agent task
         logger.info(f"Executing webhook-triggered agent {agent_id}")
-        await execute_task(agent)
+        await agent.execute()
         
         # Get the final outputs from the agent
         outputs = agent.get_ordered_outputs()

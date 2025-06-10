@@ -3,6 +3,7 @@ Services package for pancaik agents.
 
 This package contains various services that agents can use, such as:
 - Twitter: For interacting with Twitter/X platform
+- RetellAI: For AI-powered phone calls
 - (Additional services will be added here)
 
 Each service typically contains:
@@ -12,7 +13,7 @@ Each service typically contains:
 """
 
 # Import all service subpackages to register their tools
-from . import twitter
+from . import twitter, retellai, pipedrive
 
 # Export all available services
-__all__ = ["twitter"]
+__all__ = ["twitter", "retellai", "pipedrive"]
