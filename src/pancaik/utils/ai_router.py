@@ -167,6 +167,7 @@ class AIRouter:
                 return f"anthropic/{model_id}"
             elif provider == Provider.XAI:
                 return "x-ai/grok-beta"
+        # If the model is already an OpenRouter model (has provider-specific prefix), return as-is
         return model_id
 
     @asynccontextmanager
@@ -201,6 +202,8 @@ class AIRouter:
         response_model: Any = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
         **kwargs,
     ) -> Union[str, Dict[str, Any]]:
         """Get a completion from the specified model.
@@ -213,6 +216,8 @@ class AIRouter:
             response_model: Response model for structured output
             temperature: Temperature for generation (only included if explicitly set)
             max_tokens: Maximum tokens to generate (only included if explicitly set)
+            tools: List of tools available for the model to call
+            tool_choice: How the model should choose tools ("auto", "none", or specific tool)
             **kwargs: Additional arguments to pass to the provider
 
         Returns:
@@ -277,6 +282,10 @@ class AIRouter:
                 api_kwargs["max_tokens"] = max_tokens
             if temperature is not None:
                 api_kwargs["temperature"] = temperature
+            if tools is not None:
+                api_kwargs["tools"] = tools
+            if tool_choice is not None:
+                api_kwargs["tool_choice"] = tool_choice
 
             try:
                 async with self.get_client(effective_provider) as client:
@@ -292,6 +301,11 @@ class AIRouter:
                     else:
                         # Make the API call for standard responses
                         completion = await client.chat.completions.create(**completion_args)
+                        
+                        # If there are tool calls, return the full completion object for processing
+                        if tools and hasattr(completion.choices[0].message, 'tool_calls') and completion.choices[0].message.tool_calls:
+                            return completion
+                        
                         return completion.choices[0].message.content
             except Exception as e:
                 if getattr(e, "status_code", None) == 429:
@@ -313,6 +327,12 @@ async def get_completion(
     response_model: Any = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+    agent_mode: bool = False,
+    max_iterations: int = 10,
+    verbose: bool = False,
+    system_message: Optional[str] = None,
     **kwargs,
 ) -> Union[str, Dict[str, Any]]:
     """Get a completion from an AI model using pre-initialized router.
@@ -324,12 +344,33 @@ async def get_completion(
         response_model: Response model for structured output
         temperature: Temperature for generation (only included if explicitly set)
         max_tokens: Maximum tokens to generate (only included if explicitly set)
+        tools: List of tools available for the model to call
+        tool_choice: How the model should choose tools ("auto", "none", or specific tool)
+        agent_mode: If True, use LangChain agent for iterative tool calling
+        max_iterations: Maximum iterations for agent mode
+        verbose: Enable verbose logging for agent mode
+        system_message: System message for the agent (tools instruction will be appended in agent mode)
         **kwargs: Additional arguments to pass to the provider
 
     Returns:
         The model's completion text or structured response
     """
-    # Use the appropriate router based on use_openrouter flag
+    # If agent_mode is True and tools are provided, use LangChain agent
+    if agent_mode and tools:
+        return await get_agent_completion(
+            prompt=prompt,
+            tools=tools,
+            model_id=model_id,
+            use_openrouter=use_openrouter,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations,
+            verbose=verbose,
+            system_message=system_message,
+            **kwargs
+        )
+    
+    # Otherwise use the standard completion
     router = openrouter if use_openrouter else default_router
 
     # Create kwargs for the router's get_completion method
@@ -338,10 +379,163 @@ async def get_completion(
         router_kwargs["temperature"] = temperature
     if max_tokens is not None:
         router_kwargs["max_tokens"] = max_tokens
+    if tools is not None:
+        router_kwargs["tools"] = tools
+    if tool_choice is not None:
+        router_kwargs["tool_choice"] = tool_choice
 
     return await router.get_completion(
         prompt=prompt, model_id=model_id, use_openrouter=use_openrouter, response_model=response_model, **router_kwargs
     )
+
+
+async def get_agent_completion(
+    prompt: Union[str, List[MessageDict]],
+    tools: List[Any],  # LangChain tools
+    model_id: Optional[str] = None,
+    use_openrouter: bool = True,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    max_iterations: int = 10,
+    verbose: bool = False,
+    system_message: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Get a completion using LangChain agent with iterative tool calling.
+
+    Args:
+        prompt: The prompt or list of message dictionaries
+        tools: List of LangChain tools
+        model_id: The model identifier to use
+        use_openrouter: Whether to route through OpenRouter
+        temperature: Temperature for generation
+        max_tokens: Maximum tokens to generate
+        max_iterations: Maximum iterations for the agent
+        verbose: Enable verbose logging
+        system_message: Complete system message for the agent (caller has full control)
+        **kwargs: Additional arguments
+
+    Returns:
+        Dictionary with agent results including final output and intermediate steps
+    """
+    try:
+        from langchain_openai import ChatOpenAI
+        from langchain.agents import create_tool_calling_agent, AgentExecutor
+        from langchain_core.prompts import ChatPromptTemplate
+        import os
+        
+        # Get API configuration
+        if use_openrouter:
+            api_key = os.environ.get("OPENROUTER_API_KEY")
+            base_url = "https://openrouter.ai/api/v1"
+            
+            # Handle model ID for OpenRouter
+            if model_id:
+                # Check if it's already an OpenRouter model (has provider prefix)
+                openrouter_prefixes = ["deepseek/", "meta-llama/", "mistralai/", "google/", "anthropic/", "x-ai/"]
+                if any(model_id.startswith(prefix) for prefix in openrouter_prefixes):
+                    effective_model = model_id  # Use as-is for OpenRouter native models
+                elif model_id.startswith("openai/"):
+                    effective_model = model_id  # Already has openai/ prefix
+                else:
+                    effective_model = f"openai/{model_id}"  # Add openai/ for OpenAI models
+            else:
+                effective_model = "openai/gpt-4"  # Default OpenAI model via OpenRouter
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            base_url = "https://api.openai.com/v1"
+            effective_model = model_id or "gpt-4"
+        
+        if not api_key:
+            raise ValueError(f"No API key found for {'OpenRouter' if use_openrouter else 'OpenAI'}")
+        
+        # Initialize the LLM
+        llm_kwargs = {
+            "model": effective_model,
+            "api_key": api_key,
+            "base_url": base_url,
+        }
+        if temperature is not None:
+            llm_kwargs["temperature"] = temperature
+        if max_tokens is not None:
+            llm_kwargs["max_tokens"] = max_tokens
+        
+        llm = ChatOpenAI(**llm_kwargs)
+        
+        # Use the caller's system message or provide a minimal default
+        final_system_message = system_message or "You are a helpful assistant."
+        
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", final_system_message),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ])
+        
+        # Create the agent
+        agent = create_tool_calling_agent(llm, tools, prompt_template)
+        
+        # Create agent executor
+        agent_executor = AgentExecutor(
+            agent=agent,
+            tools=tools,
+            verbose=verbose,
+            max_iterations=max_iterations,
+            return_intermediate_steps=True
+        )
+        
+        # Format the input
+        input_text = prompt if isinstance(prompt, str) else prompt[-1].get("content", str(prompt))
+        
+        # Execute the agent
+        result = agent_executor.invoke({"input": input_text})
+        
+        # Format the response
+        return {
+            "final_output": result["output"],
+            "total_steps": len(result.get("intermediate_steps", [])),
+            "steps": [
+                {
+                    "step": i + 1,
+                    "tool": action.tool,
+                    "tool_input": action.tool_input,
+                    "observation": observation
+                }
+                for i, (action, observation) in enumerate(result.get("intermediate_steps", []))
+            ],
+            "provider": "openrouter" if use_openrouter else "openai",
+            "model": effective_model
+        }
+        
+    except ImportError as e:
+        raise ImportError("LangChain dependencies not installed. Run: poetry add langchain langchain-openai") from e
+    except Exception as e:
+        logger.error(f"Agent completion failed: {str(e)}")
+        raise
+
+
+def create_langchain_tool(func: callable, name: Optional[str] = None, description: Optional[str] = None):
+    """Helper function to create a LangChain tool from a regular Python function.
+    
+    Args:
+        func: The Python function to convert to a LangChain tool
+        name: Optional name for the tool (defaults to function name)
+        description: Optional description for the tool (defaults to function docstring)
+        
+    Returns:
+        A LangChain tool
+    """
+    try:
+        from langchain_core.tools import tool as langchain_tool
+        
+        # The tool decorator might not support name parameter in some versions
+        # So we'll only use description if provided
+        if description:
+            return langchain_tool(description=description)(func)
+        else:
+            return langchain_tool(func)
+            
+    except ImportError:
+        raise ImportError("LangChain dependencies not installed. Run: poetry add langchain langchain-openai")
 
 
 def compose_prompt(main_content: str, system_content: Optional[str] = None) -> List[MessageDict]:

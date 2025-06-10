@@ -122,6 +122,54 @@ class ConnectionHandler:
 
         return connection.get("params", {})
 
+    async def get_full_connection(self, instance_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the full connection document by its instance ID.
+
+        Args:
+            instance_id: The unique identifier of the connection to retrieve
+
+        Returns:
+            The full connection document or None if not found
+        """
+        assert instance_id, "Instance ID cannot be empty"
+
+        collection = self.get_collection()
+        connection = await collection.find_one({"_id": ObjectId(instance_id)})
+
+        if not connection:
+            logger.warning(f"Connection not found: {instance_id}")
+            return None
+
+        return connection
+
+    async def update_connection_metadata(self, instance_id: str, metadata: Dict[str, Any]) -> bool:
+        """
+        Update a connection's metadata.
+
+        Args:
+            instance_id: The unique identifier of the connection to update
+            metadata: Metadata to update
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        assert instance_id, "Instance ID cannot be empty"
+        assert isinstance(metadata, dict), "Metadata must be a dictionary"
+
+        collection = self.get_collection()
+        result = await collection.update_one(
+            {"_id": ObjectId(instance_id)}, 
+            {"$set": {"metadata": metadata}}
+        )
+
+        success = result.modified_count > 0
+        if success:
+            logger.info(f"Updated connection metadata: {instance_id}")
+        else:
+            logger.warning(f"Failed to update connection metadata: {instance_id}")
+        return success
+
     async def test_connection(self, instance_id: str) -> Dict[str, Any]:
         """
         Test a connection by its instance ID using the registered test handler.

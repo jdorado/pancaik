@@ -11,6 +11,18 @@ This module provides a template for creating new tools using the @tool decorator
 # - Do NOT use try/catch in the tool (the @tool decorator handles exceptions)
 # - Follow the sample code pattern and keep code modular, clear, and open source quality
 
+## Error Handling:
+# - For hard failures that should stop execution: raise Exception("error message")
+# - For graceful exits (user config issues, etc.): return {"should_exit": True}
+# - When using should_exit: True, no need to return values - just {"should_exit": True} is enough
+
+## Error Handling Pattern:
+# Two options for handling errors in tools:
+# 1. HARD FAILURE (must fail): Raise an exception - the @tool decorator will handle it
+# 2. GRACEFUL EXIT: Return {"should_exit": True, "values": {"context": {"error_message": "..."}}}
+#    - Use this when the error is expected/recoverable and you want to end the pipeline gracefully
+#    - Don't return complex error objects, just set should_exit: True and add error context
+
 ## Processing Mode Feature Usage:
 
 When a tool returns 'should_process': True, the agent will:
