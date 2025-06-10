@@ -1,11 +1,14 @@
-from cryptography.fernet import Fernet
-import os
-from ..core.config import logger
 import base64
+import os
+
+from cryptography.fernet import Fernet
+
+from ..core.config import logger
+
 
 class EncryptionUtil:
     def __init__(self):
-        key = os.environ.get('ENCRYPTION_KEY')
+        key = os.environ.get("ENCRYPTION_KEY")
         if not key:
             logger.warning("ENCRYPTION_KEY not set, generating a new key for this session")
             return
@@ -40,5 +43,6 @@ class EncryptionUtil:
             logger.error(f"Decryption error: {e}")
             raise ValueError(f"Failed to decrypt data: {e}")
 
+
 # Singleton instance
-encryption_util = EncryptionUtil() 
+encryption_util = EncryptionUtil()

@@ -6,7 +6,6 @@ This module provides tools for loading and analyzing tweets from users.
 
 from datetime import datetime, timedelta
 from json import tool
-from typing import Union, List
 
 from ...core.ai_logger import ai_logger
 from ...tools.base import tool
@@ -15,6 +14,7 @@ from ...utils.json_parser import extract_json_content
 from ...utils.prompt_utils import get_prompt
 from .handlers import TwitterHandler
 from .indexing import get_filtered_following_handles
+
 
 @tool(agents=["agent_twitter_index_following"])
 async def twitter_load_following_posts(
@@ -47,18 +47,11 @@ async def twitter_load_following_posts(
     """
     # Get filtered following handles
     usernames, metadata = await get_filtered_following_handles(
-        twitter_connection=twitter_connection,
-        target_handle=target_handle,
-        data_store=data_store,
-        min_followers=followers_count
+        twitter_connection=twitter_connection, target_handle=target_handle, data_store=data_store, min_followers=followers_count
     )
-    
+
     if metadata["status"] != "success":
-        return {
-            "status": metadata["status"],
-            "error": metadata.get("error", "Failed to get following handles"),
-            "values": {}
-        }
+        return {"status": metadata["status"], "error": metadata.get("error", "Failed to get following handles"), "values": {}}
 
     # Convert usernames list to newline-separated string for twitter_load_past_posts
     target_handles = "\n".join(usernames)
@@ -70,7 +63,7 @@ async def twitter_load_following_posts(
         include_replies=include_replies,
         analysis_mode=analysis_mode,
         criteria_for_analysis_selection=criteria_for_analysis_selection,
-        stop_if_no_posts=stop_if_no_posts
+        stop_if_no_posts=stop_if_no_posts,
     )
 
 
@@ -103,38 +96,33 @@ async def twitter_load_past_posts(
     assert data_store is not None, "data_store must be provided"
     assert isinstance(include_replies, bool), "include_replies must be a boolean"
     assert isinstance(target_handles, str), "target_handles must be a string"
-    
+
     # Split handles by newlines, remove @ symbols, and filter out empty strings
-    handles = [h.strip().lstrip('@') for h in target_handles.split('\n') if h.strip()]
-    
+    handles = [h.strip().lstrip("@") for h in target_handles.split("\n") if h.strip()]
+
     agent_id = data_store.get("agent_id")
     config = data_store.get("config", {})
     account_id = config.get("account_id")
     agent_name = config.get("name")
-    
+
     ai_logger.thinking(
         f"Loading past Twitter posts for {handles} (days_past={days_past}, include_replies={include_replies}, analysis_mode={analysis_mode})",
         agent_id,
         account_id,
         agent_name,
     )
-    
+
     min_date = datetime.utcnow() - timedelta(days=int(days_past))
     handler = TwitterHandler()
-    
+
     # Load all posts in a single database query
     all_posts = await handler.get_tweets_from_users(
-        usernames=handles,
-        min_date=min_date,
-        limit=1000  # Increased limit since we'll filter later
+        usernames=handles, min_date=min_date, limit=1000  # Increased limit since we'll filter later
     )
-    
+
     # Filter out replies if needed
     if not include_replies:
-        all_posts = [
-            post for post in all_posts 
-            if not post.get("replied_to_id") and not post.get("inReplyToStatusId")
-        ]
+        all_posts = [post for post in all_posts if not post.get("replied_to_id") and not post.get("inReplyToStatusId")]
 
     # Sort posts by created_at date desc
     filtered_posts = sorted(all_posts, key=lambda x: x["created_at"], reverse=True)
@@ -160,14 +148,7 @@ async def twitter_load_past_posts(
     # Flatten posts into list of strings
     posts_text = [post.get("text", "") for post in filtered_posts]
     # Create selective output format
-    selective_posts = [
-        {
-            "_id": post.get("_id"),
-            "username": post.get("username"),
-            "text": post.get("text")
-        }
-        for post in filtered_posts
-    ]
+    selective_posts = [{"_id": post.get("_id"), "username": post.get("username"), "text": post.get("text")} for post in filtered_posts]
     context = {}
     output = {}
     model_id = config.get("ai_models", {}).get("default")
@@ -205,12 +186,9 @@ async def twitter_load_past_posts(
         parsed_response = extract_json_content(response) or {}
         filtered_post_texts = [post.get("text", "") for post in parsed_response.get("filtered_posts", [])]
         filtered_full_posts = [
-            {
-                "_id": post.get("_id"),
-                "username": post.get("username"),
-                "text": post.get("text")
-            }
-            for post in filtered_posts if post.get("text") in filtered_post_texts
+            {"_id": post.get("_id"), "username": post.get("username"), "text": post.get("text")}
+            for post in filtered_posts
+            if post.get("text") in filtered_post_texts
         ]
         context = {"twitter_posts": filtered_full_posts}
         output = {"twitter_posts": filtered_full_posts}

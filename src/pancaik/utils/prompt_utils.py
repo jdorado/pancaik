@@ -2,7 +2,7 @@
 Utility functions for handling prompts and formatting data for AI models.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 0, skip_empty: bool = True) -> str:
@@ -112,14 +112,14 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
                 lines.append(f"{content_indent}<{key}>")
                 for i, item in enumerate(value, 1):
                     item_tag = f"{key}_item_{i}"
-                    
+
                     # For dictionary items, recursively process their contents
                     if isinstance(item, dict):
                         lines.append(f"{' ' * (indent + 8)}<{item_tag}>")
-                        
+
                         # Process each key-value pair in the dictionary item
                         for k, v in item.items():
-                            inner_indent = ' ' * (indent + 12)
+                            inner_indent = " " * (indent + 12)
                             # Handle nested dictionary
                             if isinstance(v, dict):
                                 nested_content = get_prompt({k: v}, k, indent + 12, skip_empty)
@@ -138,7 +138,7 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
                                     for val_line in str_value.split("\n"):
                                         lines.append(f"{inner_indent}{val_line}")
                                     lines.append(f"{inner_indent}</{k}>")
-                        
+
                         lines.append(f"{' ' * (indent + 8)}</{item_tag}>")
                     else:
                         # Handle primitive types
@@ -148,13 +148,13 @@ def get_prompt(data: Dict[str, Any], wrapper_tag: str = "prompt", indent: int = 
                         item_lines = item_str.split("\n")
                         lines.extend(f"{' ' * (indent + 8)}{line}" for line in item_lines)
                         lines.append(f"{' ' * (indent + 8)}</{item_tag}>")
-                    
+
                     lines.append("")  # Add blank line between list items
-                
+
                 # Remove the last blank line if it exists
                 if lines and not lines[-1]:
                     lines.pop()
-                
+
                 lines.append(f"{content_indent}</{key}>")
                 lines.append("")  # Add blank line after list
         else:

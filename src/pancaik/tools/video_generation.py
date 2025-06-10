@@ -2,35 +2,34 @@
 Video generation tool for Pancaik agents using AI.
 """
 
-from typing import Any, Dict, Optional
+import asyncio
 import os
-import time
-import json
+import uuid
+from typing import Any, Dict, Optional
+
 from google import genai
 from google.genai import types
-import asyncio
-import uuid
 
-from ..core.config import logger
 from ..core.ai_logger import ai_logger
+from ..core.config import logger
 from ..utils.ai_router import get_completion
+from ..utils.context_utils import find_and_extract_context_key
 from ..utils.json_parser import extract_json_content
 from ..utils.prompt_utils import get_prompt
-from ..utils.context_utils import find_and_extract_context_key
 from .base import tool
 
 
 @tool()
 async def video_generator(
-    data_store: Dict[str, Any], 
+    data_store: Dict[str, Any],
     video_style: Optional[str] = None,
     video_context: Optional[str] = None,
-    video_prompt_guidelines: Optional[str] = None
+    video_prompt_guidelines: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate videos using AI based on context and custom prompts.
-    
-    Creates dynamic visual content with camera movements, actions, and cinematic effects 
+
+    Creates dynamic visual content with camera movements, actions, and cinematic effects
     that complement your content strategy.
 
     Args:
@@ -51,13 +50,10 @@ async def video_generator(
     agent_name = config.get("name")
     logger.info(f"Running video_generator for agent {agent_id} ({agent_name})")
 
-    ai_logger.thinking(
-        f"Starting video generation process using AI video model",
-        agent_id, account_id, agent_name
-    )
+    ai_logger.thinking(f"Starting video generation process using AI video model", agent_id, account_id, agent_name)
 
     # --- Tool logic: Video generation using Google Gemini Veo API ---
-    
+
     # Get context and check for video style in context
     context = data_store.get("context", {})
 
@@ -71,53 +67,57 @@ async def video_generator(
                 image_bytes = bytes(media_item["data"])
                 # Create proper image object for Gemini API
                 input_image = types.Image(image_bytes=image_bytes, mime_type=media_item["mediaType"])
-                ai_logger.action(f"Found image in context media_data, will use as input for video generation", agent_id, account_id, agent_name)
+                ai_logger.action(
+                    f"Found image in context media_data, will use as input for video generation", agent_id, account_id, agent_name
+                )
                 break
-        
+
         # Remove media_data from context after using it
         updated_context = {k: v for k, v in context.items() if k != "media_data"}
     else:
         updated_context = context
 
     context_video_style, updated_context = find_and_extract_context_key(updated_context, "video style")
-    
+
     # Use context video style if found, otherwise use parameter
     final_video_style = context_video_style if context_video_style is not None else video_style
-    
+
     if context_video_style:
         ai_logger.action(f"Found video style in context", agent_id, account_id, agent_name)
     elif video_style:
         ai_logger.action(f"Using provided video style", agent_id, account_id, agent_name)
     else:
         ai_logger.thinking("No specific video style provided, will generate based on context", agent_id, account_id, agent_name)
-    
+
     # Extract relevant context if video_context instructions are provided
     final_context = updated_context
     if video_context is not None:
         ai_logger.action(f"Extracting relevant context using instructions: '{video_context}'", agent_id, account_id, agent_name)
-        
+
         context_extraction_prompt_data = {
             "task": "Extract relevant context for video generation based on the provided instructions. Focus on the most relevant information and keep your response concise.",
             "full_context": updated_context,
             "extraction_instructions": video_context,
-            "output_format": """\nOUTPUT IN JSON: Strict JSON format, no additional text. Keep the extracted context concise and focused.\n"extracted_context": {"key": "value", ...}\n"""
+            "output_format": """\nOUTPUT IN JSON: Strict JSON format, no additional text. Keep the extracted context concise and focused.\n"extracted_context": {"key": "value", ...}\n""",
         }
         context_extraction_prompt = get_prompt(context_extraction_prompt_data)
         model_id = config.get("ai_models", {}).get("default")
         context_response = await get_completion(prompt=context_extraction_prompt, model_id=model_id)
-        
+
         # Parse the context extraction response
         parsed_context_response = extract_json_content(context_response) or {}
         extracted_context = parsed_context_response.get("extracted_context", updated_context)
         final_context = extracted_context
-        
-        ai_logger.result(f"Context extraction completed. Extracted {len(final_context)} relevant elements", agent_id, account_id, agent_name)
-    
+
+        ai_logger.result(
+            f"Context extraction completed. Extracted {len(final_context)} relevant elements", agent_id, account_id, agent_name
+        )
+
     # Generate prompt based on video_style and context
     ai_logger.action("Generating detailed video prompt using AI", agent_id, account_id, agent_name)
-    
+
     video_prompt = None
-    
+
     # Only generate prompt if we have context to work with
     if final_context or video_prompt_guidelines or final_video_style:
         output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text. Keep the video prompt detailed but concise (under 500 words).\n"video_prompt": "Your detailed video generation prompt here"\n"""
@@ -125,19 +125,19 @@ async def video_generator(
             "task": "Generate a detailed but concise video prompt for AI video generation based on the provided style and context. Focus on the most important visual elements, actions, and style. Keep the prompt under 500 words while being specific about camera movements, lighting, and key visual elements.",
             "context": final_context,
         }
-        
+
         # Add video_style as second key if provided
         if final_video_style:
             prompt_data["video_style"] = final_video_style
-        
+
         # Add video_prompt_guidelines if provided
         if video_prompt_guidelines:
             prompt_data["video_prompt_guidelines"] = video_prompt_guidelines
             ai_logger.thinking("Applying custom prompt guidelines", agent_id, account_id, agent_name)
-        
+
         # Add output_format as the last key
         prompt_data["output_format"] = output_format
-        
+
         prompt = get_prompt(prompt_data)
         model_id = config.get("ai_models", {}).get("default")
         response = await get_completion(prompt=prompt, model_id=model_id)
@@ -145,26 +145,26 @@ async def video_generator(
         # Parse the response as strict JSON
         parsed_response = extract_json_content(response) or {}
         video_prompt = parsed_response.get("video_prompt")
-        
+
         ai_logger.result(f"Generated video prompt", agent_id, account_id, agent_name)
     else:
         ai_logger.thinking("No context available, will use basic video generation", agent_id, account_id, agent_name)
         # Fallback to a basic prompt if no context is available
         video_prompt = None
-    
+
     # Only proceed with video generation if we have a prompt or an input image as anchor
     if video_prompt is None and input_image is None:
         ai_logger.thinking("No video prompt generated and no input image available - exiting gracefully", agent_id, account_id, agent_name)
         return {
             "should_exit": True,
         }
-    
+
     # Initialize Gemini client
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         ai_logger.error("GEMINI_API_KEY environment variable is required for video generation", agent_id, account_id, agent_name)
         raise ValueError("GEMINI_API_KEY environment variable is required")
-    
+
     client = genai.Client(
         http_options={"api_version": "v1beta"},
         api_key=api_key,
@@ -177,7 +177,7 @@ async def video_generator(
         number_of_videos=1,  # supported values: 1 - 4
         duration_seconds=5,  # supported values: 5 - 8
     )
-    
+
     ai_logger.action("Starting video generation with AI model", agent_id, account_id, agent_name)
 
     # Generate video - include image if available from context
@@ -200,9 +200,7 @@ async def video_generator(
         ai_logger.error("Error occurred while generating video", agent_id, account_id, agent_name)
         return {
             "values": {
-                "output": {
-                    'media_data': []
-                },
+                "output": {"media_data": []},
             },
         }
 
@@ -211,57 +209,50 @@ async def video_generator(
         ai_logger.warning("No videos were generated by the AI model", agent_id, account_id, agent_name)
         return {
             "values": {
-                "output": {
-                    'media_data': []
-                },
+                "output": {"media_data": []},
             },
         }
 
     # Process results
     video_data = []
     ai_logger.result(f"Generated {len(generated_videos)} video(s)", agent_id, account_id, agent_name)
-    
+
     for n, generated_video in enumerate(generated_videos):
         ai_logger.action(f"Processing video {n+1}: {generated_video.video.uri}", agent_id, account_id, agent_name)
-        
+
         # Get the event loop for running blocking operations in thread pool
         loop = asyncio.get_event_loop()
-        
+
         # Download the video file first (run in thread pool)
         await loop.run_in_executor(None, lambda: client.files.download(file=generated_video.video))
-        
+
         # Create unique filename to avoid conflicts
         unique_id = str(uuid.uuid4())[:8]
         video_filename = f"video_{agent_id}_{unique_id}_{n}.mp4"
-        
+
         # Save the downloaded video (run in thread pool)
         await loop.run_in_executor(None, generated_video.video.save, video_filename)
-        
+
         # Read the saved video file as byte array
-        with open(video_filename, 'rb') as video_file:
+        with open(video_filename, "rb") as video_file:
             video_bytes = video_file.read()
             video_byte_array = list(video_bytes)
-        
-        video_data.append({
-            'data': video_byte_array,
-            'mediaType': 'video/mp4'
-        })
-        
+
+        video_data.append({"data": video_byte_array, "mediaType": "video/mp4"})
+
         # Clean up the temporary file
         os.remove(video_filename)
-        
+
         ai_logger.result(f"Video {n+1} processed and converted to byte array", agent_id, account_id, agent_name)
 
     if video_data:
         ai_logger.result(f"Successfully generated {len(video_data)} video(s) in MP4 format", agent_id, account_id, agent_name)
     else:
         ai_logger.warning("No video data was processed", agent_id, account_id, agent_name)
-    
+
     # Return in the required format for Pancaik tools
     return {
         "values": {
-            "output": {
-                'media_data': video_data
-            },
+            "output": {"media_data": video_data},
         },
-    } 
+    }

@@ -22,13 +22,15 @@ from pancaik.core.config import logger
 
 class TextContent(TypedDict):
     """Type definition for text content in a message."""
+
     type: str  # "text"
     text: str
 
 
 class ImageUrlContent(TypedDict):
     """Type definition for image URL content in a message."""
-    type: str  # "image_url" 
+
+    type: str  # "image_url"
     image_url: Dict[str, str]  # {"url": "data:image/jpeg;base64,..."}
 
 
@@ -301,11 +303,11 @@ class AIRouter:
                     else:
                         # Make the API call for standard responses
                         completion = await client.chat.completions.create(**completion_args)
-                        
+
                         # If there are tool calls, return the full completion object for processing
-                        if tools and hasattr(completion.choices[0].message, 'tool_calls') and completion.choices[0].message.tool_calls:
+                        if tools and hasattr(completion.choices[0].message, "tool_calls") and completion.choices[0].message.tool_calls:
                             return completion
-                        
+
                         return completion.choices[0].message.content
             except Exception as e:
                 if getattr(e, "status_code", None) == 429:
@@ -367,9 +369,9 @@ async def get_completion(
             max_iterations=max_iterations,
             verbose=verbose,
             system_message=system_message,
-            **kwargs
+            **kwargs,
         )
-    
+
     # Otherwise use the standard completion
     router = openrouter if use_openrouter else default_router
 
@@ -419,16 +421,17 @@ async def get_agent_completion(
         Dictionary with agent results including final output and intermediate steps
     """
     try:
-        from langchain_openai import ChatOpenAI
-        from langchain.agents import create_tool_calling_agent, AgentExecutor
-        from langchain_core.prompts import ChatPromptTemplate
         import os
-        
+
+        from langchain.agents import AgentExecutor, create_tool_calling_agent
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
+
         # Get API configuration
         if use_openrouter:
             api_key = os.environ.get("OPENROUTER_API_KEY")
             base_url = "https://openrouter.ai/api/v1"
-            
+
             # Handle model ID for OpenRouter
             if model_id:
                 # Check if it's already an OpenRouter model (has provider prefix)
@@ -445,10 +448,10 @@ async def get_agent_completion(
             api_key = os.environ.get("OPENAI_API_KEY")
             base_url = "https://api.openai.com/v1"
             effective_model = model_id or "gpt-4"
-        
+
         if not api_key:
             raise ValueError(f"No API key found for {'OpenRouter' if use_openrouter else 'OpenAI'}")
-        
+
         # Initialize the LLM
         llm_kwargs = {
             "model": effective_model,
@@ -459,53 +462,46 @@ async def get_agent_completion(
             llm_kwargs["temperature"] = temperature
         if max_tokens is not None:
             llm_kwargs["max_tokens"] = max_tokens
-        
+
         llm = ChatOpenAI(**llm_kwargs)
-        
+
         # Use the caller's system message or provide a minimal default
         final_system_message = system_message or "You are a helpful assistant."
-        
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", final_system_message),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ])
-        
+
+        prompt_template = ChatPromptTemplate.from_messages(
+            [
+                ("system", final_system_message),
+                ("human", "{input}"),
+                ("placeholder", "{agent_scratchpad}"),
+            ]
+        )
+
         # Create the agent
         agent = create_tool_calling_agent(llm, tools, prompt_template)
-        
+
         # Create agent executor
         agent_executor = AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=verbose,
-            max_iterations=max_iterations,
-            return_intermediate_steps=True
+            agent=agent, tools=tools, verbose=verbose, max_iterations=max_iterations, return_intermediate_steps=True
         )
-        
+
         # Format the input
         input_text = prompt if isinstance(prompt, str) else prompt[-1].get("content", str(prompt))
-        
+
         # Execute the agent
         result = agent_executor.invoke({"input": input_text})
-        
+
         # Format the response
         return {
             "final_output": result["output"],
             "total_steps": len(result.get("intermediate_steps", [])),
             "steps": [
-                {
-                    "step": i + 1,
-                    "tool": action.tool,
-                    "tool_input": action.tool_input,
-                    "observation": observation
-                }
+                {"step": i + 1, "tool": action.tool, "tool_input": action.tool_input, "observation": observation}
                 for i, (action, observation) in enumerate(result.get("intermediate_steps", []))
             ],
             "provider": "openrouter" if use_openrouter else "openai",
-            "model": effective_model
+            "model": effective_model,
         }
-        
+
     except ImportError as e:
         raise ImportError("LangChain dependencies not installed. Run: poetry add langchain langchain-openai") from e
     except Exception as e:
@@ -515,25 +511,25 @@ async def get_agent_completion(
 
 def create_langchain_tool(func: callable, name: Optional[str] = None, description: Optional[str] = None):
     """Helper function to create a LangChain tool from a regular Python function.
-    
+
     Args:
         func: The Python function to convert to a LangChain tool
         name: Optional name for the tool (defaults to function name)
         description: Optional description for the tool (defaults to function docstring)
-        
+
     Returns:
         A LangChain tool
     """
     try:
         from langchain_core.tools import tool as langchain_tool
-        
+
         # The tool decorator might not support name parameter in some versions
         # So we'll only use description if provided
         if description:
             return langchain_tool(description=description)(func)
         else:
             return langchain_tool(func)
-            
+
     except ImportError:
         raise ImportError("LangChain dependencies not installed. Run: poetry add langchain langchain-openai")
 
@@ -557,10 +553,10 @@ def compose_prompt(main_content: str, system_content: Optional[str] = None) -> L
 
 def create_text_content(text: str) -> TextContent:
     """Create a text content object for multi-modal messages.
-    
+
     Args:
         text: The text content
-        
+
     Returns:
         A text content object
     """
@@ -569,25 +565,19 @@ def create_text_content(text: str) -> TextContent:
 
 def create_image_content(image_base64: str, image_format: str = "jpeg") -> ImageUrlContent:
     """Create an image content object for multi-modal messages.
-    
+
     Args:
         image_base64: Base64 encoded image data
         image_format: Image format (jpeg, png, etc.)
-        
+
     Returns:
         An image content object
     """
-    return {
-        "type": "image_url",
-        "image_url": {"url": f"data:image/{image_format};base64,{image_base64}"}
-    }
+    return {"type": "image_url", "image_url": {"url": f"data:image/{image_format};base64,{image_base64}"}}
 
 
 def compose_multimodal_prompt(
-    text: str, 
-    images: Optional[List[str]] = None, 
-    image_format: str = "jpeg",
-    system_content: Optional[str] = None
+    text: str, images: Optional[List[str]] = None, image_format: str = "jpeg", system_content: Optional[str] = None
 ) -> List[MessageDict]:
     """Helper to compose a multi-modal prompt with text and images.
 
@@ -603,12 +593,12 @@ def compose_multimodal_prompt(
     messages = []
     if system_content:
         messages.append({"role": "system", "content": system_content})
-    
+
     # Create content list with text and images
     content = [create_text_content(text)]
     if images:
         for image_base64 in images:
             content.append(create_image_content(image_base64, image_format))
-    
+
     messages.append({"role": "user", "content": content})
     return messages

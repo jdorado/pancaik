@@ -33,13 +33,12 @@ import atexit
 import logging
 import logging.handlers
 import queue
-import threading
 import sys
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
-from motor.motor_asyncio import AsyncIOMotorCollection
 import pymongo
+from motor.motor_asyncio import AsyncIOMotorCollection
 
 from .config import get_config, logger
 
@@ -66,30 +65,26 @@ class AILogger:
             self._queue_listener: Optional[logging.handlers.QueueListener] = None
             self._collection: Optional[AsyncIOMotorCollection] = None
             self._retention_days = 30  # Number of days to keep logs
-            
+
             # Flush frequency control (similar to old buffer size)
             self._message_count = 0
             self._flush_frequency = 10  # Flush every N messages (like old buffer size)
             self._immediate_mode = False  # When True, bypass queue and write immediately
             self._debug_mode = False
-            
+
             self._setup_queue_logging()
 
     def _setup_queue_logging(self) -> None:
         """Set up QueueListener with MongoDB handler for automatic flushing."""
         # Create a custom handler that writes to MongoDB
         mongodb_handler = MongoDBHandler(self)
-        
+
         # Create QueueListener with MongoDB handler
-        self._queue_listener = logging.handlers.QueueListener(
-            self._queue, 
-            mongodb_handler,
-            respect_handler_level=True
-        )
-        
+        self._queue_listener = logging.handlers.QueueListener(self._queue, mongodb_handler, respect_handler_level=True)
+
         # Start the listener thread
         self._queue_listener.start()
-        
+
         # Register cleanup on exit - this ensures flushing on program termination
         atexit.register(self._cleanup_on_exit)
 
@@ -150,7 +145,7 @@ class AILogger:
 
     def set_flush_frequency(self, frequency: int) -> None:
         """Set how often to force flush queued messages.
-        
+
         Args:
             frequency: Flush every N messages (1 = immediate, 10 = every 10 messages, etc.)
         """
@@ -163,10 +158,10 @@ class AILogger:
 
     def set_immediate_mode(self, enabled: bool) -> None:
         """Enable or disable immediate mode.
-        
+
         When enabled, messages bypass the queue and are written directly to MongoDB.
         This provides true immediate flushing but is blocking.
-        
+
         Args:
             enabled: True for immediate writes, False for queued writes
         """
@@ -174,7 +169,7 @@ class AILogger:
 
     def _log_message(self, log_type: str, message: str, agent_id: str, account_id: str, agent_name: Optional[str] = None) -> None:
         """Internal method to log messages using QueueHandler.
-        
+
         Args:
             log_type: Type of log (thinking, action, result, warning, error)
             message: The log message
@@ -192,7 +187,7 @@ class AILogger:
             except RuntimeError:
                 # No event loop running, initialization will happen later
                 pass
-        
+
         # Create log entry
         log_entry = {
             "timestamp": datetime.now(timezone.utc),
@@ -208,7 +203,7 @@ class AILogger:
             log_entry["is_user_facing"] = True
 
         logger.info(f"AI {log_type.title()} [{agent_id}]: {message}")
-        
+
         # Check if immediate mode is enabled
         if self._immediate_mode:
             # Write directly to MongoDB bypassing the queue
@@ -225,7 +220,7 @@ class AILogger:
             try:
                 ai_log_record = AILogRecord(log_entry)
                 self._queue_handler.emit(ai_log_record)
-                
+
                 # Increment message count and check if we should force a flush
                 self._message_count += 1
                 if self._flush_frequency == 1 or self._message_count >= self._flush_frequency:
@@ -239,7 +234,7 @@ class AILogger:
                     except RuntimeError:
                         # No event loop, flush will happen naturally
                         pass
-                        
+
             except Exception as e:
                 # Fallback to direct logging if queue fails
                 logger.error(f"Failed to queue AI log message: {e}")
@@ -250,7 +245,7 @@ class AILogger:
             # Ensure we're initialized
             if not self._initialized:
                 await self._ensure_initialized()
-            
+
             if self._collection is not None:
                 await self._collection.insert_one(log_entry)
         except Exception as e:
@@ -317,21 +312,21 @@ class AILogger:
 
     async def flush(self) -> None:
         """Flush any remaining messages.
-        
+
         Note: With QueueListener, this is largely automatic, but we provide this
         for compatibility and to ensure any remaining messages are processed.
         """
         # Ensure we're initialized
         if not self._initialized:
             await self._ensure_initialized()
-        
+
         # The QueueListener automatically handles flushing, but we can add a small delay
         # to ensure any pending messages are processed
         await asyncio.sleep(0.1)
 
     async def test_connection(self) -> bool:
         """Test if the logger can connect to MongoDB.
-        
+
         Returns:
             True if connection is successful, False otherwise
         """
@@ -349,36 +344,28 @@ class AILogger:
 
 class AILogRecord(logging.LogRecord):
     """Custom LogRecord for AI logging."""
-    
+
     def __init__(self, log_data: Dict[str, Any]):
         # Create a minimal LogRecord
-        super().__init__(
-            name="ai_logger",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg=log_data["message"],
-            args=(),
-            exc_info=None
-        )
+        super().__init__(name="ai_logger", level=logging.INFO, pathname="", lineno=0, msg=log_data["message"], args=(), exc_info=None)
         # Store the AI log data
         self.ai_log_data = log_data
 
 
 class MongoDBHandler(logging.Handler):
     """Custom logging handler that writes AI logs to MongoDB."""
-    
+
     def __init__(self, ai_logger_instance: AILogger):
         super().__init__()
         self.ai_logger = ai_logger_instance
         self._sync_collection = None
-    
+
     def _get_sync_collection(self):
         """Get a synchronous collection using the database connection string from config."""
         if self._sync_collection is None:
             try:
                 # Get the database connection string from the existing config
-                db_connection = get_config('db_connection')
+                db_connection = get_config("db_connection")
                 if db_connection and self.ai_logger._collection is not None:
                     sync_client = pymongo.MongoClient(db_connection)
                     # Use the same database and collection name as the async version
@@ -389,18 +376,18 @@ class MongoDBHandler(logging.Handler):
             except Exception as e:
                 print(f"AI Logger: Failed to create sync collection: {e}", file=sys.stderr)
         return self._sync_collection
-    
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record to MongoDB using synchronous operations."""
         try:
-            if hasattr(record, 'ai_log_data'):
+            if hasattr(record, "ai_log_data"):
                 # This is an AI log record, write to MongoDB synchronously
                 sync_collection = self._get_sync_collection()
                 if sync_collection is not None:
                     try:
                         result = sync_collection.insert_one(record.ai_log_data)
                         # Only print success in debug mode
-                        if hasattr(self.ai_logger, '_debug_mode') and self.ai_logger._debug_mode:
+                        if hasattr(self.ai_logger, "_debug_mode") and self.ai_logger._debug_mode:
                             print(f"AI Logger: Successfully wrote log to MongoDB: {result.inserted_id}", file=sys.stderr)
                     except Exception as e:
                         print(f"AI Logger: MongoDB write error: {e}", file=sys.stderr)

@@ -17,12 +17,12 @@ from .handlers import TwitterHandler
 
 @tool()
 async def twitter_publish_post(
-    twitter_connection: str, 
-    text_content: str = None, 
+    twitter_connection: str,
+    text_content: str = None,
     data_store: Optional[Dict[str, Any]] = None,
     selected_tweet: Optional[Dict[str, Any]] = None,
     interaction_type: Optional[str] = None,
-    media_data: Optional[Dict[str, Any]] = None
+    media_data: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Publish a tweet to Twitter.
@@ -39,7 +39,9 @@ async def twitter_publish_post(
         Dictionary with publishing operation results
     """
     # Preconditions
-    assert text_content or media_data or (interaction_type == "repost" and selected_tweet), "Tweet content or media must be provided unless retweeting"
+    assert (
+        text_content or media_data or (interaction_type == "repost" and selected_tweet)
+    ), "Tweet content or media must be provided unless retweeting"
 
     # Extract AI logging context
     agent_id = data_store.get("agent_id") if data_store else None
@@ -61,11 +63,11 @@ async def twitter_publish_post(
 
     # Prepare tweet parameters based on interaction type
     tweet_params = {"text": text_content or ""}
-    
+
     # Add media data if provided
     if media_data is not None:
         tweet_params["media_data"] = media_data
-    
+
     if selected_tweet and interaction_type:
         tweet_id = selected_tweet.get("_id")
         if interaction_type == "reply":
@@ -80,11 +82,8 @@ async def twitter_publish_post(
                 tweet_params["media_data"] = media_data
 
     # Publish the tweet
-    ai_logger.action(
-        f"Publishing tweet{f' as {interaction_type}' if interaction_type else ''}.", 
-        agent_id, account_id, agent_name
-    )
-    
+    ai_logger.action(f"Publishing tweet{f' as {interaction_type}' if interaction_type else ''}.", agent_id, account_id, agent_name)
+
     # Acquire semaphore to respect rate limits
     await semaphore.acquire()
     try:
@@ -99,11 +98,7 @@ async def twitter_publish_post(
         error_msg = "Tweet creation returned None"
         logger.error(error_msg)
         ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        return {
-            "status": "error", 
-            "message": error_msg,
-            "details": "No response from Twitter API"
-        }
+        return {"status": "error", "message": error_msg, "details": "No response from Twitter API"}
 
     if "id" not in tweet:
         logger.error("Invalid tweet response format")
@@ -119,22 +114,14 @@ async def twitter_publish_post(
     if interaction_type and selected_tweet:
         twitter_handler = TwitterHandler()
         username = twitter.get_username()
-        
+
         # Map interaction types to database values
-        interaction_map = {
-            'reply': 'replied',
-            'quote': 'quoted',
-            'repost': 'retweeted'
-        }
-        
+        interaction_map = {"reply": "replied", "quote": "quoted", "repost": "retweeted"}
+
         db_interaction_type = interaction_map.get(interaction_type)
         if db_interaction_type:
             post_id = selected_tweet.get("_id")
-            success = await twitter_handler.mark_post_interaction(
-                post_id=post_id,
-                username=username,
-                interaction_type=db_interaction_type
-            )
+            success = await twitter_handler.mark_post_interaction(post_id=post_id, username=username, interaction_type=db_interaction_type)
             if success:
                 logger.info(f"Marked post {post_id} as {db_interaction_type}")
             else:
@@ -149,14 +136,13 @@ async def twitter_publish_post(
                     "text": text_content or "",
                     "url": f"https://x.com/{username}/status/{tweet_id}",
                     "interaction_type": interaction_type if interaction_type else None,
-                    "interaction_with": selected_tweet.get("_id") if selected_tweet else None
+                    "interaction_with": selected_tweet.get("_id") if selected_tweet else None,
                 },
             },
         },
     }
 
     ai_logger.result(
-        f"Successfully published tweet{f' as {interaction_type}' if interaction_type else ''}", 
-        agent_id, account_id, agent_name
+        f"Successfully published tweet{f' as {interaction_type}' if interaction_type else ''}", agent_id, account_id, agent_name
     )
     return result

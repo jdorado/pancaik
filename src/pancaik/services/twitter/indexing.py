@@ -284,7 +284,7 @@ async def twitter_index_user(
             "already_indexed": len(existing_ids),
             "user_id": user.get("user_id"),
             "last_indexed": current_time.isoformat(),
-            "next_allowed": (current_time + MIN_INDEX_INTERVAL).isoformat()
+            "next_allowed": (current_time + MIN_INDEX_INTERVAL).isoformat(),
         }
         return result
     except Exception as e:
@@ -295,17 +295,14 @@ async def twitter_index_user(
         semaphore.release()
 
 
-async def get_users_in_cooldown(
-    handler: TwitterHandler,
-    usernames: List[str]
-) -> Dict[str, Dict[str, Any]]:
+async def get_users_in_cooldown(handler: TwitterHandler, usernames: List[str]) -> Dict[str, Dict[str, Any]]:
     """
     Check which users from a list are in cooldown period.
-    
+
     Args:
         handler: TwitterHandler instance
         usernames: List of Twitter usernames to check
-        
+
     Returns:
         Dictionary mapping usernames to their cooldown info if in cooldown, empty dict if not
     """
@@ -313,15 +310,15 @@ async def get_users_in_cooldown(
     users = await handler.get_users(usernames)
     if not users:
         return {}
-        
+
     current_time = datetime.utcnow()
     cooldown_info = {}
-    
+
     for user in users:
         last_indexed = user.get("date")
         if not last_indexed:
             continue
-            
+
         if (current_time - last_indexed) < MIN_INDEX_INTERVAL:
             time_until_next = last_indexed + MIN_INDEX_INTERVAL - current_time
             cooldown_info[user["_id"]] = {
@@ -330,19 +327,20 @@ async def get_users_in_cooldown(
                 "indexed_count": 0,
                 "last_indexed": last_indexed.isoformat(),
                 "next_allowed": (last_indexed + MIN_INDEX_INTERVAL).isoformat(),
-                "wait_seconds": int(time_until_next.total_seconds())
+                "wait_seconds": int(time_until_next.total_seconds()),
             }
-    
+
     return cooldown_info
+
 
 async def is_user_in_cooldown(handler: TwitterHandler, username: str) -> tuple[bool, Optional[Dict[str, Any]]]:
     """
     Check if a user is in the cooldown period.
-    
+
     Args:
         handler: TwitterHandler instance
         username: Twitter username to check
-        
+
     Returns:
         Tuple of (is_in_cooldown, cooldown_info)
         cooldown_info contains timing details if in cooldown, None otherwise
@@ -351,6 +349,7 @@ async def is_user_in_cooldown(handler: TwitterHandler, username: str) -> tuple[b
     if username in cooldown_info:
         return True, cooldown_info[username]
     return False, None
+
 
 @tool()
 async def twitter_index_multiple(twitter_connection: str, target_handles: str, data_store: dict) -> Dict[str, Any]:
@@ -370,10 +369,10 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
     # Preconditions
     assert data_store is not None, "data_store must be provided for AI logging"
     assert isinstance(target_handles, str), "target_handles must be a string"
-    
+
     # Split handles by newlines, remove @ symbols, and filter out empty strings
-    handles = [h.strip().lstrip('@') for h in target_handles.split('\n') if h.strip()]
-    
+    handles = [h.strip().lstrip("@") for h in target_handles.split("\n") if h.strip()]
+
     agent_id = data_store.get("agent_id")
     account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
@@ -386,14 +385,14 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
     if db is None:
         raise ValueError("Database not initialized in config")
     handler = TwitterHandler()
-    
+
     # Check cooldown status for all handles in a single query
     cooldown_info = await get_users_in_cooldown(handler, handles)
-    
+
     # Separate handles into those we can process and those in cooldown
     handles_to_process = []
     skipped_handles = []
-    
+
     for handle in handles:
         if handle in cooldown_info:
             skipped_handles.append(cooldown_info[handle])
@@ -402,17 +401,13 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
             # Break if we have 20 valid handles
             if len(handles_to_process) >= 20:
                 break
-    
+
     if handles_to_process:
         ai_logger.action(
-            f"Processing {len(handles_to_process)} users (skipped {len(skipped_handles)} in cooldown)...", 
-            agent_id, account_id, agent_name
+            f"Processing {len(handles_to_process)} users (skipped {len(skipped_handles)} in cooldown)...", agent_id, account_id, agent_name
         )
     else:
-        ai_logger.action(
-            f"All {len(handles)} users are in cooldown period", 
-            agent_id, account_id, agent_name
-        )
+        ai_logger.action(f"All {len(handles)} users are in cooldown period", agent_id, account_id, agent_name)
 
     # Process handles not in cooldown sequentially
     processed_results = {}
@@ -423,12 +418,8 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
             processed_results[handle] = result
         except Exception as e:
             logger.error(f"Error indexing tweets for {handle}: {str(e)}")
-            processed_results[handle] = {
-                "status": "error",
-                "error": str(e),
-                "indexed_count": 0
-            }
-    
+            processed_results[handle] = {"status": "error", "error": str(e), "indexed_count": 0}
+
     # Add skipped handles to results
     for info in skipped_handles:
         processed_results[info["username"]] = info
@@ -439,7 +430,7 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
         f"(skipped {len(skipped_handles)} in cooldown, {remaining_handles} not processed due to limit)",
         agent_id,
         account_id,
-        agent_name
+        agent_name,
     )
 
     return {
@@ -449,12 +440,14 @@ async def twitter_index_multiple(twitter_connection: str, target_handles: str, d
         "total_handles_skipped": len(skipped_handles),
         "total_handles_requested": len(handles),
         "total_handles_remaining": remaining_handles,
-        "handles_limited": len(handles) > (len(handles_to_process) + len(skipped_handles))
+        "handles_limited": len(handles) > (len(handles_to_process) + len(skipped_handles)),
     }
 
 
 @tool()
-async def twitter_index_following(twitter_connection: str, target_handle: str, data_store: dict, min_followers: str = "100") -> Dict[str, Any]:
+async def twitter_index_following(
+    twitter_connection: str, target_handle: str, data_store: dict, min_followers: str = "100"
+) -> Dict[str, Any]:
     """
     Indexes tweets from all users that a target user follows.
 
@@ -469,15 +462,12 @@ async def twitter_index_following(twitter_connection: str, target_handle: str, d
     """
     # Cast min_followers to int as it may come as string
     min_followers_int = int(min_followers) if min_followers else 0
-    
+
     # Get filtered following handles
     usernames, metadata = await get_filtered_following_handles(
-        twitter_connection=twitter_connection,
-        target_handle=target_handle,
-        data_store=data_store,
-        min_followers=min_followers_int
+        twitter_connection=twitter_connection, target_handle=target_handle, data_store=data_store, min_followers=min_followers_int
     )
-    
+
     if metadata["status"] != "success":
         return metadata
 
@@ -485,12 +475,14 @@ async def twitter_index_following(twitter_connection: str, target_handle: str, d
     agent_id = data_store.get("agent_id")
     account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
-    
+
     ai_logger.action(
-        f"Indexing tweets from {len(usernames)} following users (filtered from {metadata['total_count']} total)...", 
-        agent_id, account_id, agent_name
+        f"Indexing tweets from {len(usernames)} following users (filtered from {metadata['total_count']} total)...",
+        agent_id,
+        account_id,
+        agent_name,
     )
-    
+
     # Convert usernames list to newline-separated string for twitter_index_multiple
     usernames_str = "\n".join(usernames)
     result = await twitter_index_multiple(twitter_connection, usernames_str, data_store)
@@ -505,17 +497,14 @@ async def twitter_index_following(twitter_connection: str, target_handle: str, d
         f"Completed indexing tweets from following list of {target_handle} ({len(usernames)} users after filtering)",
         agent_id,
         account_id,
-        agent_name
+        agent_name,
     )
 
     return result
 
 
 async def get_filtered_following_handles(
-    twitter_connection: str,
-    target_handle: str,
-    data_store: dict,
-    min_followers: int = 100
+    twitter_connection: str, target_handle: str, data_store: dict, min_followers: int = 100
 ) -> Tuple[List[str], Dict[str, Any]]:
     """
     Gets filtered list of handles that a user follows based on criteria.
@@ -534,7 +523,7 @@ async def get_filtered_following_handles(
     # Preconditions
     assert target_handle, "Twitter handle must be provided"
     assert data_store is not None, "data_store must be provided for AI logging"
-    
+
     agent_id = data_store.get("agent_id")
     account_id = data_store.get("config", {}).get("account_id")
     agent_name = data_store.get("config", {}).get("name")
@@ -557,14 +546,9 @@ async def get_filtered_following_handles(
         # Try to get user profile first
         logger.info(f"User {target_handle} not found or missing user_id, attempting to fetch profile")
         profile = await twitter.get_profile(target_handle)
-        
+
         if profile and profile.get("id"):
-            user = {
-                "_id": target_handle,
-                "user_id": profile["id"],
-                "date": datetime.utcnow(),
-                "tries": 0
-            }
+            user = {"_id": target_handle, "user_id": profile["id"], "date": datetime.utcnow(), "tries": 0}
             await handler.update_user(user)
             user_id = profile["user_id"]
         else:
@@ -576,7 +560,7 @@ async def get_filtered_following_handles(
                     "username": target_handle,
                     "error": "Could not obtain user_id",
                     "filtered_count": 0,
-                    "total_count": 0
+                    "total_count": 0,
                 }
             user_id = user_result["user_id"]
     else:
@@ -589,12 +573,7 @@ async def get_filtered_following_handles(
     if not following_list:
         logger.info(f"No following users found for {target_handle}")
         ai_logger.result(f"No following users found for {target_handle}", agent_id, account_id, agent_name)
-        return [], {
-            "status": "no_following_found",
-            "username": target_handle,
-            "filtered_count": 0,
-            "total_count": 0
-        }
+        return [], {"status": "no_following_found", "username": target_handle, "filtered_count": 0, "total_count": 0}
 
     # Filter and save user entries from following list
     filtered_following = []
@@ -602,16 +581,16 @@ async def get_filtered_following_handles(
     for following_user in following_list:
         if not following_user.get("username"):
             continue
-        
+
         followers_count = following_user.get("followersCount", 0)
-        
+
         # Skip users with fewer followers than minimum
         if followers_count < int(min_followers):
             logger.info(f"Skipping user {following_user['username']} with {followers_count} followers (minimum: {min_followers})")
             continue
-            
+
         filtered_following.append(following_user)
-        
+
         user_entry = {
             "_id": following_user["username"],
             "user_id": following_user["id"],
@@ -622,10 +601,10 @@ async def get_filtered_following_handles(
             "is_verified": following_user.get("isVerified", False),
             "profile_image_url": following_user.get("profileImageUrl"),
             "name": following_user.get("name"),
-            "bio": following_user.get("bio")
+            "bio": following_user.get("bio"),
         }
         user_entries.append(user_entry)
-    
+
     # Bulk update all user entries at once if we have any
     if user_entries:
         await handler.bulk_update_users(user_entries)
@@ -638,7 +617,7 @@ async def get_filtered_following_handles(
         "username": target_handle,
         "filtered_count": len(filtered_following),
         "total_count": len(following_list),
-        "min_followers_threshold": min_followers
+        "min_followers_threshold": min_followers,
     }
 
     return usernames, metadata

@@ -113,6 +113,7 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
 
         # Add tasks endpoint if requested
         if config.get("add_tasks_endpoint", False):
+
             @router.post("/tasks/")
             async def tasks_post():
                 """
@@ -125,39 +126,38 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
 
         # Add webhook endpoint if requested
         if config.get("add_webhook_endpoint", False):
-            from fastapi import HTTPException, Header, Request
+            from fastapi import Header, HTTPException, Request
+
             from .core.webhook_handler import webhook
 
             @router.post("/webhook/{agent_id}")
-            async def webhook_trigger(
-                agent_id: str,
-                request: Request,
-                authorization: str = Header(None)
-            ):
+            async def webhook_trigger(agent_id: str, request: Request, authorization: str = Header(None)):
                 """
                 Trigger an agent execution via webhook with custom context.
-                
+
                 Args:
                     agent_id: The ID of the agent to execute
                     request: FastAPI request object containing JSON body
                     authorization: Bearer token from Authorization header
-                
+
                 Returns:
                     Execution result or error response
                 """
                 # Validate authorization header format
                 if not authorization or not authorization.startswith("Bearer "):
-                    raise HTTPException(status_code=401, detail="Missing or invalid Authorization header. Expected format: 'Bearer <token>'")
-                
+                    raise HTTPException(
+                        status_code=401, detail="Missing or invalid Authorization header. Expected format: 'Bearer <token>'"
+                    )
+
                 # Extract token from authorization header
                 token = authorization[7:]  # Remove "Bearer " prefix
-                
+
                 # Get request body
                 try:
                     body = await request.json()
                 except Exception:
                     body = {}
-                
+
                 # Execute the agent via webhook
                 result = await webhook(agent_id, token, body)
                 return result

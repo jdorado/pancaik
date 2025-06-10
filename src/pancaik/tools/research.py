@@ -10,22 +10,20 @@ from typing import Any, Dict, Optional
 from ..core.ai_logger import ai_logger
 from ..tools.base import tool
 from ..utils.ai_router import get_completion
-from ..utils.prompt_utils import get_prompt
 from ..utils.cache_decorator import cache_with_expiration
+from ..utils.prompt_utils import get_prompt
 
 
 @tool
-@cache_with_expiration(
-    exclude_params=["data_store"]  # Exclude dynamic data_store, but include context in cache
-)
+@cache_with_expiration(exclude_params=["data_store"])  # Exclude dynamic data_store, but include context in cache
 async def research(
-    research_prompt: str, 
-    research_model: str, 
-    data_store: Dict[str, Any], 
+    research_prompt: str,
+    research_model: str,
+    data_store: Dict[str, Any],
     topic_selection: Optional[Dict[str, str]] = None,
     context_selection: Optional[str] = None,
     reset_context: bool = True,
-    context: Optional[Dict[str, Any]] = None  # Include context in cache key
+    context: Optional[Dict[str, Any]] = None,  # Include context in cache key
 ):
     """
     Performs research using Perplexity.
@@ -35,10 +33,10 @@ async def research(
         research_model: The model ID to use for research
         data_store: Agent's data store containing configuration and state
         topic_selection: Optional dictionary containing 'topic' and 'full_background' for pre-selected research topics
-        context_selection: Optional string to determine context inclusion strategy. 
+        context_selection: Optional string to determine context inclusion strategy.
                            If 'full_context', includes both data_store context and topic_selection.
                            If 'topic_selector_only', includes only topic_selection.
-        reset_context: If True, previous context will be reset and the research output will become 
+        reset_context: If True, previous context will be reset and the research output will become
                        the new context for the agent. Default is True.
         context: Context data from agent (auto-populated from data_store.context)
 
@@ -69,7 +67,7 @@ async def research(
         "task": "Conduct detailed and comprehensive research on the following research prompt.",
         "research_prompt": research_prompt,
     }
-    
+
     # Handle context based on context_selection parameter
     if context_selection == "full_context":
         prompt_data["context"] = context
@@ -81,36 +79,32 @@ async def research(
                     f"Using pre-selected topic with full context: {topic_selection['topic']}",
                     agent_id=agent_id,
                     account_id=account_id,
-                    agent_name=agent_name
+                    agent_name=agent_name,
                 )
     elif context_selection == "topic_selector_only":
         # Ensure topic_selection is not None when using topic_selector_only
         assert topic_selection is not None, "topic_selection must be provided when context_selection is 'topic_selector_only'"
         assert isinstance(topic_selection, dict), "topic_selection must be a dictionary"
-        assert "topic" in topic_selection and "full_background" in topic_selection, "topic_selection must contain 'topic' and 'full_background' keys"
-        
+        assert (
+            "topic" in topic_selection and "full_background" in topic_selection
+        ), "topic_selection must contain 'topic' and 'full_background' keys"
+
         prompt_data["topic_selection"] = topic_selection
         ai_logger.thinking(
-            f"Using only pre-selected topic: {topic_selection['topic']}",
-            agent_id=agent_id,
-            account_id=account_id,
-            agent_name=agent_name
+            f"Using only pre-selected topic: {topic_selection['topic']}", agent_id=agent_id, account_id=account_id, agent_name=agent_name
         )
     else:
         # Default behavior - include context
         prompt_data["context"] = context
-        
+
         # Add topic selection if provided
         if topic_selection and isinstance(topic_selection, dict):
             if "topic" in topic_selection and "full_background" in topic_selection:
                 prompt_data["topic_selection"] = topic_selection
                 ai_logger.thinking(
-                    f"Using pre-selected topic: {topic_selection['topic']}",
-                    agent_id=agent_id,
-                    account_id=account_id,
-                    agent_name=agent_name
+                    f"Using pre-selected topic: {topic_selection['topic']}", agent_id=agent_id, account_id=account_id, agent_name=agent_name
                 )
-    
+
     prompt = get_prompt(prompt_data)
 
     ai_logger.action(f"Querying Perplexity with formatted prompt", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
@@ -122,22 +116,22 @@ async def research(
         account_id=account_id,
         agent_name=agent_name,
     )
-    
+
     # Create new context with research result
     context = {"research": research_result}
-    
+
     # Prepare return values
     return_values = {"context": context, "output": context}
-    
+
     # Handle context reset logic using the delete_context mechanism
     if reset_context:
         ai_logger.thinking(
             "Resetting previous context and using new research output as context",
             agent_id=agent_id,
             account_id=account_id,
-            agent_name=agent_name
+            agent_name=agent_name,
         )
-        
+
         # Get all existing context keys to delete
         existing_context_keys = list(data_store.get("context", {}).keys())
         if existing_context_keys:

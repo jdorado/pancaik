@@ -4,9 +4,9 @@ Knowledge tools for agents.
 This module provides tools for loading and managing knowledge content.
 """
 
-import aiohttp
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List, Optional
 
+import aiohttp
 from bson import ObjectId
 from pymongo.collection import Collection
 from pymongo.database import Database
@@ -16,10 +16,8 @@ from ..core.config import get_config, logger
 from ..tools.base import tool
 
 # Valid image types
-VALID_IMAGE_TYPES = [
-    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
-    'image/webp', 'image/bmp', 'image/svg+xml'
-]
+VALID_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "image/bmp", "image/svg+xml"]
+
 
 class KnowledgeHandler:
     """Handler for managing knowledge objects in the database."""
@@ -53,37 +51,38 @@ class KnowledgeHandler:
             return None
         return knowledge
 
+
 async def download_image(file_url: str, file_type: str) -> bytes:
     """Download an image from a URL and return as bytes.
-    
+
     Args:
         file_url: The URL to download the image from
         file_type: The MIME type of the image
-        
+
     Returns:
         The image data as bytes
-        
+
     Raises:
         Exception: If download fails or file type is invalid
     """
     if file_type not in VALID_IMAGE_TYPES:
         raise ValueError(f"Invalid file type: {file_type}. Valid types: {VALID_IMAGE_TYPES}")
-    
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(file_url) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to download image: HTTP {response.status}")
-                
+
                 # Verify content type if provided by server
-                content_type = response.headers.get('content-type', '').lower()
+                content_type = response.headers.get("content-type", "").lower()
                 if content_type and not any(valid_type in content_type for valid_type in VALID_IMAGE_TYPES):
                     logger.warning(f"Server reported content-type '{content_type}' but expected image type")
-                
+
                 image_data = await response.read()
                 logger.info(f"Successfully downloaded image: {len(image_data)} bytes")
                 return image_data
-                
+
     except Exception as e:
         logger.error(f"Error downloading image from {file_url}: {str(e)}")
         raise
@@ -100,7 +99,7 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
 
     Returns:
         Dictionary with loaded knowledge in 'values' for context update, where context is a dict
-        mapping the value of 'title' in params to the value of 'content' for text, or 'media_data' 
+        mapping the value of 'title' in params to the value of 'content' for text, or 'media_data'
         with image data for images.
     """
     assert knowledge_id, "knowledge_id must be provided"
@@ -126,31 +125,28 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
     if "file_type" in params and "file_url" in params:
         file_type = params["file_type"]
         file_url = params["file_url"]
-        
+
         # Validate file type early
         if file_type not in VALID_IMAGE_TYPES:
             error_msg = f"Invalid file type: {file_type}. Valid types: {VALID_IMAGE_TYPES}"
             logger.error(error_msg)
             ai_logger.warning(error_msg, agent_id, account_id, agent_name)
             return {}
-        
+
         logger.info(f"Processing image knowledge: {file_type} from {file_url}")
-        
+
         try:
             # Download the image
             image_data = await download_image(file_url, file_type)
-            
+
             # Create media data structure
             generated_images: List[Dict[str, Any]] = []
-            generated_images.append({
-                'data': image_data,
-                'mediaType': file_type
-            })
-            
-            context = {'media_data': generated_images}
+            generated_images.append({"data": image_data, "mediaType": file_type})
+
+            context = {"media_data": generated_images}
             ai_logger.result(f"Image knowledge loaded and added to context for agent {agent_id}", agent_id, account_id, agent_name)
             logger.info(f"Image knowledge loaded and added to context for agent {agent_id}")
-            
+
         except Exception as e:
             logger.error(f"Failed to load image knowledge: {str(e)}")
             ai_logger.warning(f"Failed to load image knowledge: {str(e)}", agent_id, account_id, agent_name)
@@ -158,7 +154,7 @@ async def knowledge_loader(knowledge_id: str, data_store: Dict[str, Any]):
     else:
         # Handle text-based knowledge (existing logic)
         assert "title" in params and "content" in params, "Text knowledge params must have 'title' and 'content' fields"
-        
+
         # Build context: key = value of 'title', value = value of 'content'
         context = {params["title"]: params["content"]}
         ai_logger.result(f"Text knowledge loaded and added to context for agent {agent_id}", agent_id, account_id, agent_name)

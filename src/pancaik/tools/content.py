@@ -48,7 +48,7 @@ async def text_composer(
 
     # --- Tool logic: LLM prompt for composing text ---
     output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n"text_content": "Your composed text content here"\n"""
-    
+
     if topic_selection is not None:
         task = "Compose a text item based on the following instructions and adhere to the context. If topic_selection is present, follow it strictly."
     else:
@@ -66,11 +66,11 @@ async def text_composer(
     model_id = config.get("ai_models", {}).get("composing")
 
     response = await get_completion(prompt=prompt, model_id=model_id)
-    
+
     # Parse the response as strict JSON
     parsed_response = extract_json_content(response) or {}
     text_content = parsed_response.get("text_content", response)  # Fallback to raw response if parsing fails
-    
+
     context = {"text_content": text_content}
     output = context
 

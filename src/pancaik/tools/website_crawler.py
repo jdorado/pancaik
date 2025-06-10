@@ -16,9 +16,10 @@ import asyncio
 import hashlib
 from datetime import datetime
 from typing import Any, Dict
-from pydantic import BaseModel, create_model
 
-from ..core.config import logger, get_config
+from pydantic import create_model
+
+from ..core.config import get_config, logger
 from ..core.data_handler import DataHandler
 from ..utils.ai_router import get_completion
 from ..utils.json_parser import extract_json_content
@@ -29,29 +30,30 @@ from .base import tool
 async def firecrawl_extract_async(api_key: str, urls: list, prompt: str, schema_dict: dict) -> dict:
     """
     Async wrapper for Firecrawl extraction.
-    
+
     Args:
         api_key: Firecrawl API key
         urls: List of URLs to crawl
         prompt: Extraction prompt
         schema_dict: Pydantic schema dictionary
-        
+
     Returns:
         Extracted data from Firecrawl
     """
+
     def _sync_extract():
         try:
             from firecrawl import FirecrawlApp
-            
+
             # Initialize FirecrawlApp
             app = FirecrawlApp(api_key=api_key)
-            
+
             # Create dynamic Pydantic model from schema_dict
             fields = {}
             for field_name, field_info in schema_dict.items():
                 field_type = field_info.get("type", "str")
                 field_description = field_info.get("description", "")
-                
+
                 # Map string types to Python types
                 type_mapping = {
                     "str": str,
@@ -60,30 +62,30 @@ async def firecrawl_extract_async(api_key: str, urls: list, prompt: str, schema_
                     "float": float,
                     "list": list,
                 }
-                
+
                 python_type = type_mapping.get(field_type, str)
                 fields[field_name] = (python_type, ...)
-            
+
             # Create dynamic model
-            ExtractSchema = create_model('ExtractSchema', **fields)
-            
+            ExtractSchema = create_model("ExtractSchema", **fields)
+
             # Perform extraction
             response = app.extract(urls, prompt=prompt, schema=ExtractSchema.model_json_schema())
-            
+
             # Extract only the data field from the ExtractResponse object
-            if hasattr(response, 'data') and response.data:
+            if hasattr(response, "data") and response.data:
                 return response.data
-            elif hasattr(response, '__dict__'):
+            elif hasattr(response, "__dict__"):
                 # Fallback: convert to dict and extract data
-                response_dict = response.__dict__ if hasattr(response, '__dict__') else {}
-                return response_dict.get('data', {})
+                response_dict = response.__dict__ if hasattr(response, "__dict__") else {}
+                return response_dict.get("data", {})
             else:
                 return response
-            
+
         except Exception as e:
             logger.error(f"Firecrawl extraction failed: {str(e)}")
             return {"error": str(e)}
-    
+
     # Run sync function in thread pool to make it async
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _sync_extract)
@@ -93,7 +95,7 @@ async def firecrawl_extract_async(api_key: str, urls: list, prompt: str, schema_
 async def website_crawler(data_store: Dict[str, Any], crawl_instructions: str) -> Dict[str, Any]:
     """
     Intelligently crawl websites to extract specific content based on natural language requirements.
-    
+
     This tool automatically:
     - Extracts URLs from instructions or current context
     - Determines appropriate crawl depth and scope
@@ -119,7 +121,7 @@ async def website_crawler(data_store: Dict[str, Any], crawl_instructions: str) -
 
     # --- Step 1: Generate search prompt and extract URLs ---
     # Create a prompt to analyze crawl instructions and extract URLs from context
-    
+
     output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n{
     "firecrawl_prompt": "Comprehensive prompt for Firecrawl extraction describing what detailed content to extract from the pages",
     "urls_to_crawl": ["list", "of", "valid", "urls", "extracted", "from", "instructions", "and", "context"],
@@ -129,7 +131,7 @@ async def website_crawler(data_store: Dict[str, Any], crawl_instructions: str) -
         "field_name_3": {"type": "int", "description": "Description of what this number represents"}
     }
 }\n"""
-    
+
     prompt_data = {
         "task": """First, understand the objective from the context and crawling instructions, then generate Firecrawl extraction parameters:
 
@@ -213,7 +215,7 @@ Remember: The extraction should serve the user's ultimate objective, not just bl
     firecrawl_prompt = parsed_response.get("firecrawl_prompt", "")
     urls_to_crawl = parsed_response.get("urls_to_crawl", [])
     pydantic_schema = parsed_response.get("pydantic_schema", {})
-    
+
     # Validate and clean up extracted URLs
     filtered_urls = []
     for url in urls_to_crawl:
@@ -241,31 +243,31 @@ Remember: The extraction should serve the user's ultimate objective, not just bl
             logger.info(f"Added https:// prefix to www URL: {url} -> {formatted_url}")
         else:
             logger.warning(f"Skipping invalid URL format: {url}")
-    
+
     urls_to_crawl = filtered_urls
 
-        # 1/ If no URLs found to crawl, return without body content
+    # 1/ If no URLs found to crawl, return without body content
     if not urls_to_crawl:
         logger.info("No URLs found to crawl, returning empty result")
         return
-     
+
     # --- Step 2: Check cache for existing crawled data ---
     cache_handler = DataHandler("website_crawl_cache")
-    
+
     # Create cache keys for each URL
     url_cache_keys = []
     for url in urls_to_crawl:
         # Create a hash of the URL for consistent cache keys
         url_hash = hashlib.md5(url.encode()).hexdigest()
         url_cache_keys.append(f"url_{url_hash}")
-    
+
     # Check if we have cached data for these URLs
     cached_data = await cache_handler.get_data_by_keys(url_cache_keys)
-    
+
     # Create a prompt cache key based on the firecrawl prompt
     prompt_hash = hashlib.md5(firecrawl_prompt.encode()).hexdigest()
     exact_cache_key = f"prompt_{prompt_hash}_urls_{'_'.join(sorted(url_cache_keys))}"
-    
+
     # a/ Check for exact match (same prompt + same URLs)
     exact_match = await cache_handler.get_data_by_key(exact_cache_key)
     if exact_match:
@@ -275,7 +277,7 @@ Remember: The extraction should serve the user's ultimate objective, not just bl
         # b/ Check if we have crawled these URLs before with different prompts
         if cached_data:
             logger.info(f"Found cached data for {len(cached_data)} URLs with different prompts")
-            
+
             # Create a prompt to analyze if we can reuse existing data or need to re-crawl
             analysis_output_format = """\nOUTPUT IN JSON: Strict JSON format, no additional text.\n{
     "can_reuse_data": true,
@@ -286,7 +288,7 @@ Remember: The extraction should serve the user's ultimate objective, not just bl
     },
     "reasoning": "Brief explanation of decision"
 }\n"""
-            
+
             analysis_prompt_data = {
                 "task": """Analyze the existing cached crawl data and determine if it can satisfy the current extraction request.
 
@@ -314,16 +316,16 @@ IMPORTANT: When you can reuse data, return the COMPLETE, DETAILED CONTENT VALUES
                 "existing_cached_data": {url: data.get("content", {}) for url, data in cached_data.items()},
                 "output_format": analysis_output_format,
             }
-            
+
             analysis_prompt = get_prompt(analysis_prompt_data)
             model_id = config.get("ai_models", {}).get("default")
             analysis_response = await get_completion(prompt=analysis_prompt, model_id=model_id)
             analysis_result = extract_json_content(analysis_response) or {}
-            
+
             if analysis_result.get("can_reuse_data", False) and not analysis_result.get("needs_additional_crawl", True):
                 logger.info("LLM determined we can reuse cached data without additional crawling")
                 extracted_data = analysis_result.get("extracted_content", {})
-                
+
                 # Cache this result with the new prompt for future exact matches
                 await cache_handler.save_data(exact_cache_key, extracted_data, datetime.now())
             else:
@@ -337,31 +339,28 @@ IMPORTANT: When you can reuse data, return the COMPLETE, DETAILED CONTENT VALUES
     if extracted_data is None:
         extracted_data = {}
         firecrawl_api_key = get_config("firecrawl_api_key")
-        
+
         if firecrawl_api_key and urls_to_crawl and firecrawl_prompt and pydantic_schema:
             logger.info(f"Executing Firecrawl extraction for {len(urls_to_crawl)} URLs")
             try:
                 extracted_data = await firecrawl_extract_async(
-                    api_key=firecrawl_api_key,
-                    urls=urls_to_crawl,
-                    prompt=firecrawl_prompt,
-                    schema_dict=pydantic_schema
+                    api_key=firecrawl_api_key, urls=urls_to_crawl, prompt=firecrawl_prompt, schema_dict=pydantic_schema
                 )
                 logger.info(f"Firecrawl extraction completed: {len(extracted_data) if isinstance(extracted_data, dict) else 0} results")
-                
+
                 # Simplify data for caching (only store the actual extracted fields)
                 cache_data = extracted_data
-                if isinstance(extracted_data, dict) and 'data' in extracted_data:
-                    cache_data = extracted_data['data']
-                
+                if isinstance(extracted_data, dict) and "data" in extracted_data:
+                    cache_data = extracted_data["data"]
+
                 # Cache the fresh crawl results for future use
                 await cache_handler.save_data(exact_cache_key, cache_data, datetime.now())
-                
+
                 # Also cache individual URL results for reuse analysis
                 for i, url in enumerate(urls_to_crawl):
                     if i < len(url_cache_keys):
                         await cache_handler.save_data(url_cache_keys[i], cache_data, datetime.now())
-                        
+
             except Exception as e:
                 # 2/ If parsing/something fails, return without issue
                 logger.warning(f"Firecrawl extraction failed, continuing without error: {str(e)}")
@@ -378,9 +377,9 @@ IMPORTANT: When you can reuse data, return the COMPLETE, DETAILED CONTENT VALUES
     # Structure the context with descriptive, globally-unique keys
     # Simplify extracted data to only include the actual data fields
     simplified_data = extracted_data
-    if isinstance(extracted_data, dict) and 'data' in extracted_data:
-        simplified_data = extracted_data['data']
-    
+    if isinstance(extracted_data, dict) and "data" in extracted_data:
+        simplified_data = extracted_data["data"]
+
     context = {
         "website_extracted_data": simplified_data,
     }
@@ -394,4 +393,4 @@ IMPORTANT: When you can reuse data, return the COMPLETE, DETAILED CONTENT VALUES
             "context": context,
             "output": context,
         },
-    } 
+    }

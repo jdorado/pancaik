@@ -6,39 +6,40 @@ headers, and response handling. It supports both GET and POST requests with opti
 custom processing of responses.
 """
 
-from typing import Any, Dict, Optional, Literal
 import json
+from typing import Any, Dict, Literal, Optional
+
 import aiohttp
 from pydantic import BaseModel, HttpUrl, validator
 
-from ..core.config import logger
 from ..core.ai_logger import ai_logger
+from ..utils.ai_router import get_completion
 from ..utils.json_parser import extract_json_content
 from ..utils.prompt_utils import get_prompt
-from ..utils.ai_router import get_completion
 from .base import tool
 
 
 class APIRequestConfig(BaseModel):
     """Validation model for API request configuration."""
+
     api_url: HttpUrl
     http_method: str
     request_body: Optional[Dict[str, Any]] = None
     headers: Optional[Dict[str, Any]] = None
     response_handling: str
     custom_processing: Optional[str] = None
-    error_handling: Literal['stop', 'continue'] = 'stop'
+    error_handling: Literal["stop", "continue"] = "stop"
 
-    @validator('http_method')
+    @validator("http_method")
     def validate_http_method(cls, v):
-        if v.lower() not in ['get', 'post']:
-            raise ValueError('HTTP method must be either GET or POST')
+        if v.lower() not in ["get", "post"]:
+            raise ValueError("HTTP method must be either GET or POST")
         return v.lower()
 
-    @validator('response_handling')
+    @validator("response_handling")
     def validate_response_handling(cls, v):
-        if v not in ['full', 'data_only', 'custom']:
-            raise ValueError('Invalid response handling option')
+        if v not in ["full", "data_only", "custom"]:
+            raise ValueError("Invalid response handling option")
         return v
 
 
@@ -46,12 +47,12 @@ class APIRequestConfig(BaseModel):
 async def api_request(
     data_store: Dict[str, Any],
     api_url: str,
-    http_method: str = 'get',
+    http_method: str = "get",
     request_body: Optional[str] = None,
     headers: Optional[str] = None,
-    response_handling: str = 'data_only',
+    response_handling: str = "data_only",
     custom_processing: Optional[str] = None,
-    error_handling: str = 'stop'
+    error_handling: str = "stop",
 ) -> Dict[str, Any]:
     """
     Make HTTP requests to external APIs with customizable configuration.
@@ -83,7 +84,7 @@ async def api_request(
     try:
         parsed_body = json.loads(request_body) if request_body else None
         parsed_headers = json.loads(headers) if headers else {}
-        
+
         config = APIRequestConfig(
             api_url=api_url,
             http_method=http_method,
@@ -91,41 +92,27 @@ async def api_request(
             headers=parsed_headers,
             response_handling=response_handling,
             custom_processing=custom_processing,
-            error_handling=error_handling
+            error_handling=error_handling,
         )
     except (json.JSONDecodeError, ValueError) as e:
         error_msg = f"Input validation error: {str(e)}"
         ai_logger.error(error_msg, agent_id, account_id, agent_name)
         return {
-            "values": {
-                "context": {"error": str(e)},
-                "output": {"status": "error", "message": str(e)}
-            },
-            "should_exit": error_handling == 'stop'
+            "values": {"context": {"error": str(e)}, "output": {"status": "error", "message": str(e)}},
+            "should_exit": error_handling == "stop",
         }
 
     # Prepare request
-    request_kwargs = {
-        "headers": config.headers or {},
-        "ssl": False  # For development/testing - adjust based on needs
-    }
-    if config.request_body and config.http_method == 'post':
+    request_kwargs = {"headers": config.headers or {}, "ssl": False}  # For development/testing - adjust based on needs
+    if config.request_body and config.http_method == "post":
         request_kwargs["json"] = config.request_body
 
-    ai_logger.action(
-        f"Executing {config.http_method.upper()} request to {config.api_url}",
-        agent_id,
-        account_id,
-        agent_name
-    )
+    ai_logger.action(f"Executing {config.http_method.upper()} request to {config.api_url}", agent_id, account_id, agent_name)
 
     # Make request
     try:
         async with aiohttp.ClientSession() as session:
-            async with getattr(session, config.http_method)(
-                str(config.api_url),
-                **request_kwargs
-            ) as response:
+            async with getattr(session, config.http_method)(str(config.api_url), **request_kwargs) as response:
                 status = response.status
                 response_data = await response.json()
 
@@ -136,20 +123,17 @@ async def api_request(
                     return {
                         "values": {
                             "context": {"error": error_msg, "status_code": status},
-                            "output": {"status": "error", "message": error_msg}
+                            "output": {"status": "error", "message": error_msg},
                         },
-                        "should_exit": config.error_handling == 'stop'
+                        "should_exit": config.error_handling == "stop",
                     }
 
     except Exception as e:
         error_msg = f"API request error: {str(e)}"
         ai_logger.error(error_msg, agent_id, account_id, agent_name)
         return {
-            "values": {
-                "context": {"error": str(e)},
-                "output": {"status": "error", "message": str(e)}
-            },
-            "should_exit": config.error_handling == 'stop'
+            "values": {"context": {"error": str(e)}, "output": {"status": "error", "message": str(e)}},
+            "should_exit": config.error_handling == "stop",
         }
 
     # Process response based on handling option
@@ -158,17 +142,12 @@ async def api_request(
         "headers": dict(response.headers),
     }
 
-    if config.response_handling == 'full':
+    if config.response_handling == "full":
         result["data"] = response_data
-    elif config.response_handling == 'data_only':
+    elif config.response_handling == "data_only":
         result = response_data
-    elif config.response_handling == 'custom' and config.custom_processing:
-        ai_logger.thinking(
-            "Processing API response with custom instructions",
-            agent_id,
-            account_id,
-            agent_name
-        )
+    elif config.response_handling == "custom" and config.custom_processing:
+        ai_logger.thinking("Processing API response with custom instructions", agent_id, account_id, agent_name)
         # Process using LLM if custom processing is requested
         prompt_data = {
             "task": "Process API response according to instructions",
@@ -177,7 +156,7 @@ async def api_request(
         }
         prompt = get_prompt(prompt_data)
         model_id = data_store.get("config", {}).get("ai_models", {}).get("default")
-        
+
         try:
             llm_response = await get_completion(prompt=prompt, model_id=model_id)
             processed_result = extract_json_content(llm_response) or llm_response
@@ -188,27 +167,12 @@ async def api_request(
             result["processing_error"] = str(e)
             result["raw_data"] = response_data
             return {
-                "values": {
-                    "context": {"error": str(e)},
-                    "output": {"status": "error", "message": str(e)}
-                },
-                "should_exit": config.error_handling == 'stop'
+                "values": {"context": {"error": str(e)}, "output": {"status": "error", "message": str(e)}},
+                "should_exit": config.error_handling == "stop",
             }
 
-    context = {
-        "api_response": result
-    }
+    context = {"api_response": result}
 
-    ai_logger.result(
-        f"API request completed successfully with status {status}",
-        agent_id,
-        account_id,
-        agent_name
-    )
+    ai_logger.result(f"API request completed successfully with status {status}", agent_id, account_id, agent_name)
 
-    return {
-        "values": {
-            "context": context,
-            "output": context
-        }
-    } 
+    return {"values": {"context": context, "output": context}}

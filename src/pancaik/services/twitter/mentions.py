@@ -260,10 +260,7 @@ async def twitter_select_mentions(
             assert "selected_tweet" in outputs, "output must contain 'selected_tweet' key"
             assert "interaction_type" in outputs, "output must contain 'interaction_type' key"
 
-            ai_logger.action(
-                f"Preparing reply interaction with selected tweet",
-                agent_id, account_id, agent_name
-            )
+            ai_logger.action(f"Preparing reply interaction with selected tweet", agent_id, account_id, agent_name)
 
             return {
                 "values": {
@@ -273,12 +270,8 @@ async def twitter_select_mentions(
             }
         else:
             # Mark as ignored using the handler's method
-            success = await handler.mark_post_interaction(
-                post_id=mention["_id"],
-                username=reply_account,
-                interaction_type='ignored'
-            )
-            
+            success = await handler.mark_post_interaction(post_id=mention["_id"], username=reply_account, interaction_type="ignored")
+
             if success:
                 logger.info(
                     f"Mention {mention['_id']} not suitable for reply (handle_count={handle_count}, count_replies={count_replies}). Marked as ignored and continuing to next mention."

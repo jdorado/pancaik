@@ -158,10 +158,7 @@ class ConnectionHandler:
         assert isinstance(metadata, dict), "Metadata must be a dictionary"
 
         collection = self.get_collection()
-        result = await collection.update_one(
-            {"_id": ObjectId(instance_id)}, 
-            {"$set": {"metadata": metadata}}
-        )
+        result = await collection.update_one({"_id": ObjectId(instance_id)}, {"$set": {"metadata": metadata}})
 
         success = result.modified_count > 0
         if success:

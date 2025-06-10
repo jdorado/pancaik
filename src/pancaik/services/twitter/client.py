@@ -1,5 +1,5 @@
-from typing import Any, Dict, List, Optional, Union
 import json
+from typing import Any, Dict, List, Optional, Union
 
 from bson import ObjectId
 
@@ -21,10 +21,10 @@ class TwitterClient(TestableConnection):
 
     async def get_profile(self, username: str) -> Optional[Dict[str, Any]]:
         """Get a Twitter user's profile information.
-        
+
         Args:
             username: The username to get profile for
-            
+
         Returns:
             Optional[Dict[str, Any]]: Profile data if successful, None otherwise
         """
@@ -105,10 +105,10 @@ class TwitterClient(TestableConnection):
 
     async def get_following(self, user_id: str) -> Optional[List[Dict]]:
         """Get following list for a specific user.
-        
+
         Args:
             user_id: The user ID to get following for
-            
+
         Returns:
             Optional[List[Dict]]: List of following data if successful, None otherwise
         """
@@ -118,7 +118,14 @@ class TwitterClient(TestableConnection):
 class DirectTwitterClient(TwitterClient):
     """Twitter client using direct authentication."""
 
-    def __init__(self, username: str, password: str, email: Optional[str] = None, twoFactorSecret: Optional[str] = None, cookies: Optional[str] = None):
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        email: Optional[str] = None,
+        twoFactorSecret: Optional[str] = None,
+        cookies: Optional[str] = None,
+    ):
         self.credentials = {"username": username, "password": password}
         if email:
             self.credentials["email"] = email
@@ -199,7 +206,7 @@ async def get_client(instance_id: str, connection_handler: ConnectionHandler) ->
         email = params.get("email")  # Email doesn't need decryption
         encrypted_twoFactorSecret = params.get("twoFactorSecret")
         encrypted_cookies = params.get("cookies")
-        
+
         # Decrypt the password if it exists
         password = encryption_util.decrypt(encrypted_password) if encrypted_password else None
         # Decrypt the twoFactorSecret if it exists
@@ -213,7 +220,7 @@ async def get_client(instance_id: str, connection_handler: ConnectionHandler) ->
                 cookies = cookies_json.get("cookies", [])
             except (json.JSONDecodeError, TypeError):
                 cookies = decrypted_cookies  # Fallback to raw string if parsing fails
-        
+
         return DirectTwitterClient(username=username, password=password, email=email, twoFactorSecret=twoFactorSecret, cookies=cookies)
 
     raise NotImplementedError(f"Twitter connection type not implemented: {connection_id}")
@@ -228,7 +235,7 @@ async def test_twitter_connection(params: Dict[str, Any]) -> Dict[str, Any]:
     email = params.get("email")  # Email doesn't need decryption
     encrypted_twoFactorSecret = params.get("twoFactorSecret")
     encrypted_cookies = params.get("cookies")
-    
+
     # Decrypt the password if it exists
     password = encryption_util.decrypt(encrypted_password) if encrypted_password else None
     # Decrypt the twoFactorSecret if it exists
@@ -244,6 +251,6 @@ async def test_twitter_connection(params: Dict[str, Any]) -> Dict[str, Any]:
             cookies = None
 
     # Format cookies
-    
+
     client = DirectTwitterClient(username=username, password=password, email=email, twoFactorSecret=twoFactorSecret, cookies=cookies)
     return await client.test_connection()

@@ -5,11 +5,11 @@ This module provides tools for searching tweets with advanced filtering capabili
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
+from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
 from ...core.connections import ConnectionHandler
-from ...core.ai_logger import ai_logger
 from ...tools.base import tool
 from . import client as twitter_client
 from .handlers import TwitterHandler
@@ -40,12 +40,12 @@ def build_search_query(
         Complete search query with operators
     """
     operators = []
-    
+
     # Add time range
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
     operators.extend([f"until:{end_str}", f"since:{start_str}"])
-    
+
     # Add engagement filters
     if min_replies:
         operators.append(f"min_replies:{min_replies}")
@@ -53,11 +53,11 @@ def build_search_query(
         operators.append(f"min_faves:{min_likes}")  # Twitter uses 'faves' instead of 'likes'
     if min_retweets:
         operators.append(f"min_retweets:{min_retweets}")
-    
+
     # Add reply filter
     if exclude_replies:
         operators.append("-filter:replies")
-    
+
     # Combine query parts
     query_parts = [base_query] + operators
     return " ".join(query_parts)
@@ -99,7 +99,7 @@ async def twitter_search_posts(
     assert data_store is not None, "data_store must be provided"
     assert twitter_connection, "Twitter connection must be provided"
     assert search_query, "Search query must be provided"
-    
+
     # Get database instance from config
     db = get_config("db")
     if db is None:
@@ -109,20 +109,22 @@ async def twitter_search_posts(
     ai_logger.thinking(
         f"Starting Twitter search with query: {search_query}, filtering for engagement metrics: "
         f"min_replies={min_replies}, min_likes={min_likes}, min_retweets={min_retweets}",
-        agent_id, account_id, agent_name
+        agent_id,
+        account_id,
+        agent_name,
     )
 
     # Initialize connection handler and get Twitter client
     connection_handler = ConnectionHandler(db)
     twitter = await twitter_client.get_client(twitter_connection, connection_handler)
-    
+
     # Initialize Twitter handler for database operations
     handler = TwitterHandler()
-    
+
     # Set up date filtering
     end_date = datetime.utcnow()
     start_date = end_date - timedelta(days=days_recent or 7)
-    
+
     # Build query with all operators
     full_query = build_search_query(
         search_query,
@@ -131,7 +133,7 @@ async def twitter_search_posts(
         min_replies=min_replies,
         min_likes=min_likes,
         min_retweets=min_retweets,
-        exclude_replies=exclude_replies
+        exclude_replies=exclude_replies,
     )
 
     # Search using Twitter API
@@ -142,26 +144,21 @@ async def twitter_search_posts(
     # Return early with graceful exit if no results found
     if not api_results:
         ai_logger.result("No tweets found matching the search criteria", agent_id, account_id, agent_name)
-        return {
-            "should_exit": True  # Signal graceful exit
-        }
+        return {"should_exit": True}  # Signal graceful exit
 
     # Process results
     # Get tweet IDs to check which ones already exist
     tweet_ids = [tweet["_id"] for tweet in api_results]
     existing_ids = await handler.get_existing_tweet_ids(tweet_ids)
-    
+
     # Filter out tweets that don't exist in the database
     new_tweets = [tweet for tweet in api_results if tweet["_id"] not in existing_ids]
-    
+
     # Insert only new tweets into database
     if new_tweets:
         await handler.insert_tweets(new_tweets)
-    
-    ai_logger.result(
-        f"Successfully processed search results: found {len(api_results)} tweets",
-        agent_id, account_id, agent_name
-    )
+
+    ai_logger.result(f"Successfully processed search results: found {len(api_results)} tweets", agent_id, account_id, agent_name)
 
     # Postconditions
     assert all(isinstance(r, dict) for r in api_results), "All results must be dictionaries"

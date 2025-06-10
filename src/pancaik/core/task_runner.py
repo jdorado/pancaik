@@ -41,5 +41,3 @@ async def run_tasks(limit: int = 1, parallel: bool = False) -> None:
     else:
         for agent in agent_list:
             await agent.execute()
-
-

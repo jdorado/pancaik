@@ -4,8 +4,8 @@ Custom webhook tools for agents.
 This module provides tools for sending data to custom HTTP endpoints.
 """
 
-from typing import Any, Dict, Optional
 import json
+from typing import Any, Dict, Optional
 
 import aiohttp
 
@@ -19,9 +19,7 @@ class WebhookError(Exception):
 
 
 @tool
-async def custom_webhook(
-    webhook_url: str, data_store: Dict[str, Any], custom_headers: Optional[str] = None, timeout: int = 30
-):
+async def custom_webhook(webhook_url: str, data_store: Dict[str, Any], custom_headers: Optional[str] = None, timeout: int = 30):
     """
     Sends data to a custom HTTP endpoint using POST method.
 

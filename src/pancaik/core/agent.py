@@ -1,13 +1,13 @@
 import inspect
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 from bson import ObjectId
 
 from ..tools.base import _GLOBAL_TOOLS
+from ..utils.pagerduty import send_alert
 from .agent_handler import AgentHandler
 from .config import logger
-from ..utils.pagerduty import send_alert
 
 
 class Agent:
@@ -37,12 +37,12 @@ class Agent:
         # Load configuration and ensure datetime values are UTC-aware
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         config["ai_models"] = {
-                "default": "google/gemini-2.5-flash-preview-05-20",
-                "composing": "anthropic/claude-3.5-haiku",
-                "research": "perplexity/llama-3.1-sonar-large-128k-online",
-                "research-mini": "x-ai/grok-3-mini-beta",
-                "analyzing": "openai/o3-mini-high",
-            }
+            "default": "google/gemini-2.5-flash-preview-05-20",
+            "composing": "anthropic/claude-3.5-haiku",
+            "research": "perplexity/llama-3.1-sonar-large-128k-online",
+            "research-mini": "x-ai/grok-3-mini-beta",
+            "analyzing": "openai/o3-mini-high",
+        }
         self.config = self._ensure_utc_datetimes(config.copy())
 
         # Initialize data stores - using lowercase with metadata
@@ -57,19 +57,18 @@ class Agent:
 
     def _flatten_metadata_dict(self, metadata_dict: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """Convert metadata dictionary to flattened values dictionary.
-        
+
         Args:
             metadata_dict: Dictionary with metadata structure {key: {"value": val, ...}}
-            
+
         Returns:
             Flattened dictionary {key: val}
         """
         return {k: v.get("value") for k, v in metadata_dict.items()}
 
-    def _add_metadata(self, key: str, value: Any, metadata_dict: Dict[str, Dict[str, Any]], 
-                     tool_id: str | dict, phase: str) -> None:
+    def _add_metadata(self, key: str, value: Any, metadata_dict: Dict[str, Dict[str, Any]], tool_id: str | dict, phase: str) -> None:
         """Add a value with metadata to the specified metadata dictionary.
-        
+
         Args:
             key: Key for the value
             value: The value to store
@@ -78,7 +77,7 @@ class Agent:
             phase: Phase identifier (trigger, tool, or output)
         """
         assert phase in ["trigger", "tool", "output"], f"Invalid phase: {phase}"
-        
+
         metadata_dict[key] = {
             "value": value,
             "tool_id": tool_id,
@@ -113,8 +112,6 @@ class Agent:
         """Get the current retry count for this agent."""
         return self.config.get("retry_count", 0)
 
-
-
     async def run_tool(self, tool_id: str | dict, **kwargs):
         """Run a tool with the given tool_id and kwargs.
 
@@ -134,7 +131,7 @@ class Agent:
             kwargs.pop("_is_output")
         else:
             phase = "tool"
-        
+
         # Remove any existing phase info to avoid confusion
         kwargs.pop("_phase", None)
 
@@ -155,12 +152,12 @@ class Agent:
 
     async def _execute_tool(self, tool_id: str, phase: str, **kwargs):
         """Execute a tool and process its results.
-        
+
         Args:
             tool_id: String ID of the tool to run
             phase: Current execution phase
             **kwargs: Tool parameters
-            
+
         Returns:
             Tool execution result
         """
@@ -248,11 +245,13 @@ class Agent:
             # Validate all values were properly stored
             for key in result["values"].keys():
                 if key == "context":
-                    assert all(k in self.data_store["context"] for k in result["values"]["context"].keys()), \
-                        "All context values must be added to data_store['context']"
+                    assert all(
+                        k in self.data_store["context"] for k in result["values"]["context"].keys()
+                    ), "All context values must be added to data_store['context']"
                 elif key == "output":
-                    assert all(k in self.data_store["outputs"] for k in result["values"]["output"].keys()), \
-                        "All output values must be added to data_store['outputs']"
+                    assert all(
+                        k in self.data_store["outputs"] for k in result["values"]["output"].keys()
+                    ), "All output values must be added to data_store['outputs']"
                 else:
                     assert key in self.data_store, f"Value '{key}' must be added to data_store"
 
@@ -272,7 +271,7 @@ class Agent:
         """
         # Check if this is a resumed execution
         resume_from_step = kwargs.get("resume_from_step", 0)
-        
+
         # Initialize/update data store - preserve existing state if resuming
         if resume_from_step > 0:
             # Only update with new kwargs, preserving existing context/outputs
@@ -280,9 +279,9 @@ class Agent:
             # Don't override context and outputs that were restored
             preserved_context = self.data_store.get("context", {})
             preserved_outputs = self.data_store.get("outputs", {})
-            
+
             self.data_store.update(kwargs)
-            
+
             # Restore preserved state
             if preserved_context:
                 self.data_store["context"] = preserved_context
@@ -299,39 +298,41 @@ class Agent:
         tools_pipeline = self.config.get("tools", [])
         if tools_pipeline:
             assert isinstance(tools_pipeline, list), "Pipeline from config.tools must be a list"
-            
+
             # Start from the specified step index (0-based)
             for step_index, step in enumerate(tools_pipeline):
                 # Skip steps if we're resuming from a later step
                 if step_index < resume_from_step:
                     logger.info(f"Agent {self.id}: Skipping step {step_index} '{step['id']}' (resuming from step {resume_from_step})")
                     continue
-                    
+
                 logger.info(f"Agent {self.id}: Starting execution of step {step_index} '{step['id']}'")
-                
+
                 # Pass resume info if this is the step we're resuming from
                 step_kwargs = kwargs.copy()
                 if step_index == resume_from_step:
                     step_kwargs["resuming_from_step"] = step["id"]
                     step_kwargs["is_resuming"] = True
                     logger.info(f"Agent {self.id}: Resuming step '{step['id']}' from processing mode")
-                
+
                 result = await self.run_tool(step, **step_kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of step {step_index} '{step['id']}'")
-                
+
                 # Check for processing flag
                 if isinstance(result, dict) and result.get("should_process", False):
                     process_minutes = result.get("process_minutes", 10)  # Default 10 minutes
                     next_step = step_index  # Resume from current step
-                    
-                    logger.info(f"Agent {self.id}: Entering processing mode after step '{step['id']}' for {process_minutes} minutes. Will resume from step {next_step}")
-                    
+
+                    logger.info(
+                        f"Agent {self.id}: Entering processing mode after step '{step['id']}' for {process_minutes} minutes. Will resume from step {next_step}"
+                    )
+
                     # Schedule the resumption
                     await self._schedule_processing(process_minutes, next_step)
-                    
+
                     # Return early to enter processing mode
                     return {"processing": True, "resume_from_step": next_step, "process_minutes": process_minutes}
-                
+
                 # Check for exit flag (existing behavior)
                 if isinstance(result, dict) and result.get("should_exit", False):
                     logger.warning(f"Agent {self.id}: Exiting pipeline early due to should_exit flag from step '{step['id']}'")
@@ -386,25 +387,24 @@ class Agent:
         """
         Schedule the agent to resume execution after a processing period.
         Saves current context and outputs to be restored on resume.
-        
+
         Args:
             process_minutes: Number of minutes to wait for processing
             resume_from_step: Step index to resume from (0-based)
         """
-        from datetime import datetime, timezone, timedelta
-        
+        from datetime import datetime, timedelta, timezone
+
         # Calculate the resume time
         current_time = datetime.now(timezone.utc)
         resume_time = current_time + timedelta(minutes=process_minutes)
-        
+
         # Prepare processing state to save
         processing_state = {
             "context": self.data_store.get("context", {}),
             "outputs": self.data_store.get("outputs", {}),
-            "data_store_keys": {k: v for k, v in self.data_store.items() 
-                              if k not in ["context", "outputs", "config", "agent_id"]}
+            "data_store_keys": {k: v for k, v in self.data_store.items() if k not in ["context", "outputs", "config", "agent_id"]},
         }
-        
+
         # Update agent with processing information and state (keep status as "scheduled")
         await AgentHandler.update_agent_status(
             self.id,
@@ -417,11 +417,13 @@ class Agent:
                 "processing_state": processing_state,
                 "error": None,
                 "retry_count": 0,
-            }
+            },
         )
-        
+
         logger.info(f"Agent {self.id}: Scheduled to resume at {resume_time} from step {resume_from_step}")
-        logger.info(f"Agent {self.id}: Saved processing state with {len(processing_state['context'])} context items and {len(processing_state['outputs'])} outputs")
+        logger.info(
+            f"Agent {self.id}: Saved processing state with {len(processing_state['context'])} context items and {len(processing_state['outputs'])} outputs"
+        )
 
     async def schedule_next_run(self, **kwargs):
         """
@@ -451,7 +453,7 @@ class Agent:
                 if trigger.get("id") == "webhook":
                     logger.info(f"Agent {self.id}: Skipping webhook trigger '{trigger['id']}' in schedule_next_run")
                     continue
-                    
+
                 logger.info(f"Agent {self.id}: Starting execution of trigger '{trigger['id']}'")
                 result = await self.run_tool(trigger, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of trigger '{trigger['id']}'")
@@ -619,16 +621,17 @@ class Agent:
 
         return sub_agent_id
 
-    def _store_values_with_metadata(self, values: Dict[str, Any], store_dict: Dict[str, Dict[str, Any]], 
-                                  tool_id: str | dict, phase: str = "unknown") -> None:
+    def _store_values_with_metadata(
+        self, values: Dict[str, Any], store_dict: Dict[str, Dict[str, Any]], tool_id: str | dict, phase: str = "unknown"
+    ) -> None:
         """Store values in the specified store dictionary with metadata, handling key conflicts.
-        
+
         Args:
             values: Dictionary of values to store {key: value}
             store_dict: Target store dictionary (context or outputs)
             tool_id: ID of the tool that generated these values
             phase: Optional phase identifier
-            
+
         The method handles historical values by adding indexed postfixes:
         - Current value: key
         - Previous values: key_1, key_2, key_3, etc. (higher index = older value)
@@ -636,34 +639,33 @@ class Agent:
         for key, value in values.items():
             base_key = key
             final_key = key
-            
+
             # If key exists, shift all existing values with indexed postfixes
             if final_key in store_dict:
                 # Find all existing keys with this base
-                existing_keys = [k for k in store_dict.keys() 
-                               if k == base_key or (k.startswith(f"{base_key}_") and k[len(base_key)+1:].isdigit())]
-                
+                existing_keys = [
+                    k for k in store_dict.keys() if k == base_key or (k.startswith(f"{base_key}_") and k[len(base_key) + 1 :].isdigit())
+                ]
+
                 # Sort by index (base key has no index, others are numbered)
-                existing_keys.sort(key=lambda k: float('inf') if k == base_key 
-                                 else int(k[len(base_key)+1:]))
-                
+                existing_keys.sort(key=lambda k: float("inf") if k == base_key else int(k[len(base_key) + 1 :]))
+
                 # Shift all values to next index
                 for old_key in reversed(existing_keys):
                     old_value = store_dict[old_key]
                     if old_key == base_key:
                         new_key = f"{base_key}_1"
                     else:
-                        current_index = int(old_key[len(base_key)+1:])
+                        current_index = int(old_key[len(base_key) + 1 :])
                         new_key = f"{base_key}_{current_index + 1}"
-                    
+
                     # Store with original metadata
-                    self._add_metadata(new_key, old_value["value"], store_dict, 
-                                    old_value["tool_id"], old_value.get("phase", "unknown"))
-                    
+                    self._add_metadata(new_key, old_value["value"], store_dict, old_value["tool_id"], old_value.get("phase", "unknown"))
+
                     # Clean up old key if it's not the base key (which will be overwritten)
                     if old_key != base_key:
                         del store_dict[old_key]
-            
+
             # Store new value with metadata
             self._add_metadata(final_key, value, store_dict, tool_id, phase)
 
@@ -672,13 +674,13 @@ class Agent:
 
     def get_ordered_outputs(self) -> List[Dict[str, Any]]:
         """Get all outputs in order of creation.
-        
+
         Returns:
             List of dictionaries containing the output value and its metadata, ordered by creation sequence
         """
         all_values = []
         store = self.data_store["outputs"]
-        
+
         # Collect all output values with their metadata
         for key, metadata in store.items():
             value_info = {
@@ -717,35 +719,32 @@ class Agent:
         # Check if this agent is resuming from processing
         resume_from_step = self.config.get("resume_from_step", 0) or 0
         processing_state = self.config.get("processing_state")
-        
+
         if resume_from_step > 0:
             logger.info(f"Agent {self.id}: Resuming execution from step {resume_from_step}")
             kwargs["resume_from_step"] = resume_from_step
-            
+
             # Restore processing state if available
             if processing_state:
                 logger.info(f"Agent {self.id}: Restoring processing state")
-                
+
                 # Restore context with metadata
                 if "context" in processing_state and processing_state["context"]:
                     self.data_store["context"] = processing_state["context"]
                     logger.info(f"Agent {self.id}: Restored {len(processing_state['context'])} context items")
-                
-                # Restore outputs with metadata  
+
+                # Restore outputs with metadata
                 if "outputs" in processing_state and processing_state["outputs"]:
                     self.data_store["outputs"] = processing_state["outputs"]
                     logger.info(f"Agent {self.id}: Restored {len(processing_state['outputs'])} output items")
-                
+
                 # Restore other data_store keys
                 if "data_store_keys" in processing_state and processing_state["data_store_keys"]:
                     self.data_store.update(processing_state["data_store_keys"])
                     logger.info(f"Agent {self.id}: Restored {len(processing_state['data_store_keys'])} additional data store keys")
-            
+
             # Clear the resume_from_step and processing_state from config after using them
-            await AgentHandler.update_agent(self.id, {
-                "resume_from_step": None,
-                "processing_state": None
-            })
+            await AgentHandler.update_agent(self.id, {"resume_from_step": None, "processing_state": None})
 
         # Mark agent as running
         await AgentHandler.update_agent_status(self.id, "running")
@@ -763,16 +762,18 @@ class Agent:
             # Update agent status with successful completion and last run time
             current_time = datetime.now(timezone.utc)
             await AgentHandler.update_agent_status(
-                self.id, "completed", {
-                    "last_run": current_time, 
-                    "error": None, 
-                    "retry_count": 0, 
+                self.id,
+                "completed",
+                {
+                    "last_run": current_time,
+                    "error": None,
+                    "retry_count": 0,
                     "next_run": None,
                     "resume_from_step": None,  # Clear any remaining resume info
                     "processing_state": None,  # Clear any remaining processing state
                     "processing_started_at": None,  # Clear processing metadata
-                    "process_minutes": None
-                }
+                    "process_minutes": None,
+                },
             )
 
             # Schedule next run (unless this is a manual run)
@@ -781,10 +782,7 @@ class Agent:
 
                 # Send resolution alert after scheduling
                 await send_alert(
-                    event=f"{self.id}: ({self.config['name']}) completed successfully",
-                    dedup_key=self.id,
-                    is_resolve=True,
-                    severity="info"
+                    event=f"{self.id}: ({self.config['name']}) completed successfully", dedup_key=self.id, is_resolve=True, severity="info"
                 )
 
             return result
@@ -811,44 +809,44 @@ class Agent:
             if no_retry:
                 logger.info(f"Agent {self.id} failed during manual run (no_retry=True), not scheduling retry")
                 await AgentHandler.update_agent_status(
-                    self.id, "failed", {
-                        "error": str(e), 
+                    self.id,
+                    "failed",
+                    {
+                        "error": str(e),
                         "retry_count": 0,  # Reset retry count for manual runs
                         "next_run": None,
                         "resume_from_step": None,  # Clear any remaining resume info
                         "processing_state": None,  # Clear any remaining processing state
                         "processing_started_at": None,  # Clear processing metadata
-                        "process_minutes": None
-                    }
+                        "process_minutes": None,
+                    },
                 )
                 raise  # Re-raise the exception for the caller to handle
 
             # Check if we've reached the maximum number of retries
             if retry_count >= max_retries:
                 logger.info(f"Agent {self.id} has reached maximum retry attempts ({max_retries}), not scheduling retry")
-                await self.deactivate() # In order to stop any sub-agents
+                await self.deactivate()  # In order to stop any sub-agents
                 await AgentHandler.update_agent_status(
-                    self.id, "failed", {
-                        "error": str(e), 
-                        "retry_count": retry_count, 
-                        "next_run": None, 
+                    self.id,
+                    "failed",
+                    {
+                        "error": str(e),
+                        "retry_count": retry_count,
+                        "next_run": None,
                         "is_active": False,
                         "resume_from_step": None,  # Clear any remaining resume info
                         "processing_state": None,  # Clear any remaining processing state
                         "processing_started_at": None,  # Clear processing metadata
-                        "process_minutes": None
-                    }
+                        "process_minutes": None,
+                    },
                 )
                 # Send critical alert for complete failure
                 await send_alert(
                     event=f"{self.id}: ({self.config['name']}) failed permanently",
                     dedup_key=self.id,
-                    details={
-                        "error": str(e),
-                        "retry_count": retry_count,
-                        "max_retries": max_retries
-                    },
-                    severity="error"
+                    details={"error": str(e), "retry_count": retry_count, "max_retries": max_retries},
+                    severity="error",
                 )
                 return None
 

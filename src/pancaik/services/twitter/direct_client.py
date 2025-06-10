@@ -69,15 +69,16 @@ def get_api(twitter: Dict[str, str]) -> tweepy.API:
 
 # Direct API endpoints
 
+
 async def login(credentials: Dict[str, str]) -> Dict[str, Any]:
     """Validate Twitter credentials by trying to get the user's profile.
-    
+
     Args:
         credentials: Twitter API credentials
-        
+
     Returns:
         Dictionary containing the user's profile if credentials are valid
-        
+
     Raises:
         Exception: If credentials are invalid or request fails
     """
@@ -110,14 +111,14 @@ async def get_tweets_raw(user_id: str, credentials: Dict[str, str]) -> Dict[str,
 
 
 async def send_tweet_raw(
-    text: str, 
-    credentials: Dict[str, str], 
-    reply_to_id: Optional[str] = None, 
+    text: str,
+    credentials: Dict[str, str],
+    reply_to_id: Optional[str] = None,
     quote_tweet_id: Optional[str] = None,
-    media_data: Optional[Union[str, List[str], Dict[str, Any]]] = None
+    media_data: Optional[Union[str, List[str], Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Send a tweet (raw API call).
-    
+
     Args:
         text: Tweet text content
         credentials: Twitter API credentials
@@ -135,11 +136,11 @@ async def send_tweet_raw(
         "reply_to_id": reply_to_id,
         "quote_tweet_id": quote_tweet_id,
     }
-    
+
     # Add media data if provided
     if media_data is not None:
         body["mediaData"] = media_data
-    
+
     result = await post(url, body)
     if result and "rest_id" in result:
         result["id"] = result["rest_id"]
@@ -179,6 +180,7 @@ async def get_following_raw(user_id: str, credentials: Dict[str, str]) -> Option
 
 
 # High-level operations
+
 
 async def download_image(url: str) -> Optional[bytes]:
     """Download image from URL."""
@@ -226,7 +228,7 @@ async def create_tweet(
     media_data: Optional[Union[str, List[str], Dict[str, Any]]] = None,
 ) -> Optional[Dict]:
     """Create a tweet with optional media, reply, or quote.
-    
+
     Args:
         twitter: Twitter credentials
         text: Tweet text content
@@ -236,8 +238,8 @@ async def create_tweet(
         media_data: Media data to attach directly (alternative to images)
     """
     assert twitter, "Twitter credentials must not be empty"
-    username = twitter.get('username', 'Unknown')
-    
+    username = twitter.get("username", "Unknown")
+
     # Determine tweet type and prepare request
     if not text and quote_id:
         # Handle retweet case (empty text with quote_id)
@@ -254,7 +256,7 @@ async def create_tweet(
         else:
             # No media
             resp = await send_tweet_raw(text, twitter, reply_to_id=reply_id, quote_tweet_id=quote_id)
-    
+
     # Handle response - either return success or raise with error message
     if not resp:
         raise Exception("Empty response from API")
