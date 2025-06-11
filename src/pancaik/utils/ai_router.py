@@ -487,8 +487,8 @@ async def get_agent_completion(
         # Format the input
         input_text = prompt if isinstance(prompt, str) else prompt[-1].get("content", str(prompt))
 
-        # Execute the agent
-        result = agent_executor.invoke({"input": input_text})
+        # Execute the agent in a thread pool to avoid blocking the event loop
+        result = await asyncio.to_thread(agent_executor.invoke, {"input": input_text})
 
         # Format the response
         return {

@@ -251,7 +251,7 @@ CONTEXT: {context_json}"""
                 tools=pipedrive_tools,
                 system_message=system_message,
                 max_iterations=5,
-                verbose=True,
+                verbose=False,
             )
 
             # Check if the agent result contains an error
@@ -268,7 +268,19 @@ CONTEXT: {context_json}"""
             ai_logger.action("Parsing and validating agent's JSON response for result quality", agent_id, account_id, agent_name)
 
             final_output = agent_result.get("final_output", "")
-            parsed_result = extract_json_content(final_output) or {}
+            parsed_result = extract_json_content(final_output)
+
+            # If JSON extraction failed but we have output content, treat it as an error message
+            if not parsed_result and final_output.strip():
+                ai_logger.error(f"Failed to parse JSON from agent output: {final_output[:200]}...", agent_id, account_id, agent_name)
+                logger.error(f"JSON parsing failed for agent {agent_id}, raw output: {final_output[:200]}...")
+                raise Exception(f"Agent returned malformed response: {final_output}")
+
+            # If we have no output at all
+            if not parsed_result:
+                ai_logger.error("Agent returned no output or empty response", agent_id, account_id, agent_name)
+                logger.error(f"Agent {agent_id} returned no output")
+                raise Exception("Agent returned no output")
 
             # Extract key validation information
             results_found = parsed_result.get("results_found", False)

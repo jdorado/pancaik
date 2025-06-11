@@ -5,6 +5,7 @@ This module provides caching functionality for Pipedrive metadata including pipe
 stages, and users. The cache is stored in the connection metadata with configurable expiration.
 """
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -56,9 +57,8 @@ async def load_and_cache_pipedrive_metadata(
 
     with PipedriveClient(api_token=api_token) as client:
         try:
-            # Load essential cache data
-            # TODO blocking fix
-            cache_data = client.get_essential_cache_data()
+            # Load essential cache data in a thread pool to avoid blocking the event loop
+            cache_data = await asyncio.to_thread(client.get_essential_cache_data)
 
             # Add timestamp and expiry info
             cache_metadata = {
