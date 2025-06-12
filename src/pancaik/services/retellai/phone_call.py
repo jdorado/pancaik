@@ -125,11 +125,11 @@ async def phone_call(
     if is_resuming and resuming_from_step == "phone_call":
         logger.info(f"Resuming phone_call step - checking call status")
 
-        # Get call_id from data_store output
-        call_id = "call_89e5be0032dd2b583b8885bb40a"  # TODO predent
-        # TODO restore call_id = data_store.get("output", {}).get("call_id") if data_store else None
+        # Get call_id from data_store outputs (stored under call_registration)
+        call_registration = data_store.get("outputs", {}).get("call_registration", {}) if data_store else {}
+        call_id = call_registration.get("call_id")
         if not call_id:
-            error_msg = "Cannot resume phone_call: call_id not found in data_store"
+            error_msg = "Cannot resume phone_call: call_id not found in data_store call_registration"
             logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -139,7 +139,7 @@ async def phone_call(
             raise ValueError("Database not initialized in config")
 
         connection_handler = ConnectionHandler(db)
-        voice_connection = data_store.get("output", {}).get("voice_connection_used", voice_connection)
+        voice_connection = data_store.get("outputs", {}).get("voice_connection_used", voice_connection)
         connection_params = await connection_handler.get_connection(voice_connection)
         if not connection_params:
             raise ValueError(f"Voice connection not found: {voice_connection}")
@@ -151,6 +151,12 @@ async def phone_call(
         try:
             # Check call status using utility function
             call_status_response = await get_call_status(api_token, call_id)
+            
+            # Validate response structure
+            if not call_status_response or not isinstance(call_status_response, dict):
+                logger.error(f"Invalid call status response for {call_id}: {call_status_response}")
+                raise ValueError(f"Invalid call status response: expected dict, got {type(call_status_response)}")
+            
             call_status = call_status_response.get("call_status", "unknown")
 
             # Check if call is still active
@@ -167,52 +173,54 @@ async def phone_call(
                 # Call completed, return final status with complete response data
                 logger.info(f"Call {call_id} completed with status: {call_status}")
 
-                # Extract additional fields from the complete call response
+                # Extract essential fields for classification and analysis
                 call_result = {
                     "call_id": call_id,
                     "to_number": call_status_response.get("to_number"),
                     "status": call_status_response.get("call_status"),
                     "start_timestamp": call_status_response.get("start_timestamp"),
                     "end_timestamp": call_status_response.get("end_timestamp"),
+                    "duration_ms": call_status_response.get("duration_ms"),
+                    "disconnection_reason": call_status_response.get("disconnection_reason"),  # Key for understanding what happened
                     "transcript": call_status_response.get("transcript"),
-                    "call_analysis": call_status_response.get("call_analysis"),
+                    "call_analysis": call_status_response.get("call_analysis"),  # Contains call_successful, in_voicemail, user_sentiment
                 }
 
-                return {"values": {"output": {"call_result": call_result}}}
+                # Log call outcome for classification purposes
+                disconnection_reason = call_status_response.get("disconnection_reason")
+                duration_ms = call_status_response.get("duration_ms", 0)
+                
+                # Create outcome summary for classification
+                outcome_info = []
+                if call_status == "error":
+                    outcome_info.append(f"FAILED: {disconnection_reason or 'unknown reason'}")
+                elif disconnection_reason:
+                    outcome_info.append(f"ENDED: {disconnection_reason}")
+                else:
+                    outcome_info.append(f"STATUS: {call_status}")
+                
+                # Add call analysis insights
+                call_analysis = call_status_response.get("call_analysis", {})
+                if call_analysis and isinstance(call_analysis, dict):
+                    call_successful = call_analysis.get("call_successful", False)
+                    in_voicemail = call_analysis.get("in_voicemail", False)
+                    user_sentiment = call_analysis.get("user_sentiment", "Unknown")
+                    
+                    outcome_info.append(f"Success: {call_successful}")
+                    if in_voicemail:
+                        outcome_info.append("Voicemail: Yes")
+                    if user_sentiment != "Unknown":
+                        outcome_info.append(f"Sentiment: {user_sentiment}")
+                
+                outcome_summary = " | ".join(outcome_info)
+                logger.info(f"Call {call_id} outcome ({duration_ms}ms): {outcome_summary}")
+
+                call_output = {"call_result": call_result}
+                return {"values": {"output": call_output, "context": call_output}}
         except Exception as e:
             error_msg = f"Error checking call status for {call_id}: {str(e)}"
             logger.error(error_msg)
             raise ValueError(error_msg)
-
-    # TODO tmp pretend call scheduled
-    # Extract AI logging context for pretend call
-    agent_id = data_store.get("agent_id") if data_store else None
-    account_id = data_store.get("config", {}).get("account_id") if data_store else None
-    agent_name = data_store.get("config", {}).get("name") if data_store else None
-
-    # Log the pretend call creation
-    ai_logger.action(f"Creating pretend phone call with instructions: {call_instructions[:100]}...", agent_id, account_id, agent_name)
-
-    # Create a mock call result for testing
-    mock_call_id = "call_mock_123456789"
-    call_result = {
-        "call_id": mock_call_id,
-        "call_status": "registered",
-        "agent_id": "mock_agent_id",
-        "from_number": "+15551234567",
-        "to_number": "+15559876543",
-        "start_timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-
-    logger.info(f"Pretend call created with mock ID: {mock_call_id}")
-
-    ai_logger.result(f"Successfully created pretend phone call with ID: {mock_call_id}", agent_id, account_id, agent_name)
-
-    return {
-        "status": "success",
-        "should_process": True,
-        "values": {"output": {"call_registration": call_result}},
-    }
 
     # Preconditions (Design by Contract)
     assert isinstance(voice_connection, str) and voice_connection, "voice_connection must be a non-empty string"
@@ -355,10 +363,11 @@ async def phone_call(
     logger.info(f"Phone call created with ID: {call_id}")
 
     # Prepare result
+    call_registration = {"call_registration": call_result}
     result = {
         "status": "success",
         "should_process": True,  # Always process after call since it's asynchronous
-        "values": {"output": {"call_registration": call_result}},
+        "values": {"output": call_registration, "context": call_registration},
     }
 
     ai_logger.result(f"Successfully created phone call with ID: {call_id}", agent_id, account_id, agent_name)

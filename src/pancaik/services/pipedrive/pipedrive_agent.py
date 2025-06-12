@@ -59,7 +59,7 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
 
     # AI logging for initial analysis
     ai_logger.thinking(
-        f"Starting Pipedrive CRM agent analysis for instructions: '{pipedrive_instructions[:100]}...' with connection ID: {pipedrive}",
+        f"Starting Pipedrive CRM agent analysis for instructions with connection ID: {pipedrive}",
         agent_id,
         account_id,
         agent_name,
@@ -174,12 +174,12 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
                 "agent_name": agent_name,
                 "pipedrive_metadata": simplified_metadata,
                 "available_tools": [
-                    "get_activities - Get activities from Pipedrive CRM with optional filtering by deal_id, person_id, org_id, start_date, end_date, filter_id, limit. Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters."
+                    "get_activities - Get activities from Pipedrive CRM with optional filtering by deal_id, person_id, org_id, filter_id, limit. Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters."
                     "get_deals - Get deals from Pipedrive CRM with optional filtering by status, stage_id, owner, person, organization, pipeline, filter_id (Pipedrive filter ID), or ids[] (list of deal IDs)",
                     "get_persons - Get persons/contacts from Pipedrive CRM with optional filtering by person ID or organization",
                     "update_deal - Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title).",
-                    "update_activity - Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type, due_date, done, note).",
-                    "create_activity - Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least: deal_id (required), subject (required), type (required), due_date (string, e.g., '2024-06-01'), due_time (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS'), done (boolean: finished or scheduled), note (body/description). Uses POST /api/v2/activities. Example: {\"due_date\": \"2024-06-01\", \"due_time\": \"14:00\"}",
+                    "update_activity - Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type - must be one of: call, task, incoming_sms, outgoing_sms, due_date, done, note).",
+                    "create_activity - Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least: deal_id (required), subject (required), type (required - must be one of: call, task, incoming_sms, outgoing_sms), due_date (string, e.g., '2024-06-01'), due_time (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS'), done (boolean: finished or scheduled), note (body/description). Uses POST /api/v2/activities. Example: {\"due_date\": \"2024-06-01\", \"due_time\": \"14:00\"}",
                 ],
                 "output_format": OUTPUT_FORMAT,
             }
@@ -194,15 +194,15 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
             system_message = f"""You are an expert Pipedrive CRM assistant for {agent_name}.
 
 AVAILABLE TOOLS:
-- get_activities: Retrieve activities from Pipedrive with filtering options (deal_id, person_id, org_id, start_date, end_date, filter_id, limit). Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters.
+- get_activities: Retrieve activities from Pipedrive with filtering options (deal_id, person_id, org_id, filter_id, limit). Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters.
 - get_deals: Retrieve deals from Pipedrive with filtering options (status, stage_id, owner_id, person_id, org_id, pipeline_id, filter_id, ids[])
 - get_persons: Retrieve persons/contacts from Pipedrive with filtering options
 - update_deal: Update an existing deal's fields (pipeline_id, stage_id, value, etc.)
-- update_activity: Update an existing activity's fields (subject, type, due_date, done, note, etc.)
+- update_activity: Update an existing activity's fields (subject, type - must be one of: call, task, incoming_sms, outgoing_sms, due_date, done, note, etc.)
 - create_activity: Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least:
   - 'deal_id' (the deal to attach the activity to, required)
   - 'subject' (required)
-  - 'type' (required, e.g., call, meeting, task)
+  - 'type' (required - must be one of: call, task, incoming_sms, outgoing_sms)
   - 'due_date' (string, e.g., '2024-06-01')
   - 'due_time' (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS')
   - 'done' (boolean: true for finished, false for scheduled)
@@ -258,7 +258,7 @@ For create_activity:
 - Provide an activity_data dictionary for v2 Pipedrive API with at least:
   - 'deal_id' (the deal to attach the activity to, required)
   - 'subject' (required)
-  - 'type' (required, e.g., call, meeting, task)
+  - 'type' (required - must be one of: call, task, incoming_sms, outgoing_sms)
   - 'due_date' (string, e.g., '2024-06-01')
   - 'due_time' (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS')
   - 'done' (boolean: true for finished, false for scheduled)
@@ -277,15 +277,7 @@ OUTPUT REQUIREMENTS:
 CONNECTION: {pipedrive}
 CONTEXT: {context_json}"""
 
-            model_id = config.get("ai_models", {}).get("default")
-
-            ai_logger.action(
-                f"Initiating AI agent with tool calling using model '{model_id}' for: {pipedrive_instructions[:100]}...",
-                agent_id,
-                account_id,
-                agent_name,
-            )
-            logger.info(f"Starting Pipedrive agent with tool calling for: {pipedrive_instructions[:100]}...")
+            model_id = 'anthropic/claude-sonnet-4' # TODO config.get("ai_models", {}).get("default")
 
             # Use AI router in agent mode with the tools
             agent_result = await get_completion(

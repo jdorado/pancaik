@@ -55,8 +55,6 @@ async def api_request_agent(
     account_id = config.get("account_id")
     agent_name = config.get("name")
 
-    ai_logger.action(f"Parsing API instructions: {api_instructions[:100]}...", agent_id, account_id, agent_name)
-
     prompt_data = {
         "task": "Extract API request parameters from natural language instructions",
         "instructions": api_instructions,

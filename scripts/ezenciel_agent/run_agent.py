@@ -48,8 +48,8 @@ async def main():
 
     # You can now use agent_data for further processing
     agent = Agent(id=agent_id, config=agent_data)
-    await agent.run(simulate=True)
-    # await agent.execute()
+    # await agent.run(simulate=False)
+    await agent.execute()
 
     return
 

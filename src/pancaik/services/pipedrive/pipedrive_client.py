@@ -5,7 +5,7 @@ This module provides a comprehensive client for interacting with the Pipedrive R
 It handles authentication, rate limiting, error handling, and provides methods for all
 major Pipedrive operations including deals, contacts, organizations, activities, and pipelines.
 
-Official API Documentation: https://developers.pipedrive.com/docs/api/v2
+Official API Documentation: https://developers.pipedrive.com/docs/api/v1
 """
 
 import json
@@ -102,12 +102,13 @@ class PipedriveClient:
             logger.error(f"Pipedrive API v2 request failed: {str(e)}")
             raise Exception(f"Pipedrive API v2 request failed: {str(e)}")
 
-    def _make_v1_request(self, endpoint: str) -> Dict[str, Any]:
+    def _make_v1_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """
         Make authenticated request to Pipedrive API v1 for legacy endpoints.
 
         Args:
             endpoint: API endpoint (without base URL)
+            params: Query parameters
 
         Returns:
             API response data
@@ -116,12 +117,14 @@ class PipedriveClient:
             Exception: If API request fails
         """
         url = f"https://api.pipedrive.com/v1/{endpoint.lstrip('/')}"
-        params = {"api_token": self.api_token}
+        request_params = {"api_token": self.api_token}
+        if params:
+            request_params.update(params)
 
         try:
             logger.debug(f"Pipedrive API v1 GET {url}")
 
-            response = self.session.request(method="GET", url=url, params=params, headers={"Accept": "application/json"})
+            response = self.session.request(method="GET", url=url, params=request_params, headers={"Accept": "application/json"})
 
             if response.status_code == 429:  # Rate limit
                 logger.warning("Pipedrive API rate limit hit, waiting...")
@@ -386,13 +389,17 @@ class PipedriveClient:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         filter_id: Optional[int] = None,
-        sort_by: Optional[str] = "due_date",
-        sort_direction: Optional[str] = "asc",
-        limit: int = 1,
+        sort_by: Optional[str] = None,
+        sort_direction: Optional[str] = None,
+        limit: int = 10,
         cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Get activities with optional filtering using v2 API.
+        Get activities with optional filtering using V2 API (or V1 when filter_id is used).
+        
+        Sorting behavior:
+        - When deal_id is provided: sorts by creation/add order (created_at desc)
+        - When no deal_id: sorts by due date (due_date asc)
 
         Args:
             deal_id: Filter by deal ID
@@ -400,16 +407,18 @@ class PipedriveClient:
             org_id: Filter by organization ID
             start_date: Filter by start date (YYYY-MM-DD)
             end_date: Filter by end date (YYYY-MM-DD)
-            filter_id: Filter by Pipedrive filter ID
-            sort_by: Sort by field
-            sort_direction: Sort direction
-            limit: Maximum number of activities to return (default: 100)
+            filter_id: Filter by Pipedrive filter ID (forces use of V1 API)
+            sort_by: Sort by field (overrides default sorting behavior)
+            sort_direction: Sort direction (overrides default sorting behavior)
+            limit: Maximum number of activities to return (default: 10)
             cursor: Cursor for pagination
 
         Returns:
             Dictionary with activity data and metadata
         """
         params = {"limit": limit}
+        
+        # Add filters
         if deal_id:
             params["deal_id"] = deal_id
         if person_id:
@@ -420,16 +429,41 @@ class PipedriveClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
+        
+        # Use V1 API when filter_id is provided, V2 API otherwise
         if filter_id:
             params["filter_id"] = filter_id
-        if sort_by:
-            params["sort_by"] = sort_by
-        if sort_direction:
-            params["sort_direction"] = sort_direction
-        if cursor:
-            params["cursor"] = cursor
-
-        response = self._make_request("GET", "activities", params=params)
+            # V1 API doesn't support cursor pagination, so exclude it
+            if cursor:
+                logger.warning("Cursor pagination not supported with filter_id (V1 API), ignoring cursor parameter")
+            
+            # Determine sorting for V1 API
+            if sort_by and sort_direction:
+                params["sort"] = f"{sort_by} {sort_direction}"
+            elif deal_id:
+                params["sort"] = "due_date DESC"
+            else:
+                params["sort"] = "due_date ASC"
+            
+            response = self._make_v1_request("activities", params=params)
+        else:
+            # Use V2 API for all other cases
+            if cursor:
+                params["cursor"] = cursor
+            
+            # Determine sorting for V2 API
+            if sort_by and sort_direction:
+                params["sort_by"] = sort_by
+                params["sort_direction"] = sort_direction
+            elif deal_id:
+                params["sort_by"] = "due_date"
+                params["sort_direction"] = "desc"
+            else:
+                params["sort_by"] = "due_date"
+                params["sort_direction"] = "asc"
+            
+            response = self._make_request("GET", "activities", params=params)
+        
         return response
 
     def get_activity(self, activity_id: int) -> Dict[str, Any]:
@@ -438,12 +472,26 @@ class PipedriveClient:
         return response.get("data", {})
 
     def create_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new activity."""
+        """Create a new activity with restricted activity types."""
+        # Validate activity type
+        allowed_types = ["call", "task", "incoming_sms", "outgoing_sms"]
+        activity_type = activity_data.get("type")
+        
+        if activity_type and activity_type not in allowed_types:
+            raise ValueError(f"Activity type '{activity_type}' is not allowed. Allowed types: {', '.join(allowed_types)}")
+        
         response = self._make_request("POST", "activities", data=activity_data)
         return response.get("data", {})
 
     def update_activity(self, activity_id: int, activity_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update existing activity using PATCH method (v2 change)."""
+        """Update existing activity using PATCH method (v2 change) with restricted activity types."""
+        # Validate activity type if it's being updated
+        allowed_types = ["call", "task", "incoming_sms", "outgoing_sms"]
+        activity_type = activity_data.get("type")
+        
+        if activity_type and activity_type not in allowed_types:
+            raise ValueError(f"Activity type '{activity_type}' is not allowed. Allowed types: {', '.join(allowed_types)}")
+        
         response = self._make_request("PATCH", f"activities/{activity_id}", data=activity_data)
         return response.get("data", {})
 
@@ -698,7 +746,7 @@ class PipedriveClient:
             func=self.create_activity,
             description=(
                 "Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least: "
-                "deal_id (required), subject (required), type (required), due_date (string), due_time (string), "
+                "deal_id (required), subject (required), type (required - must be one of: call, task, incoming_sms, outgoing_sms), due_date (string), due_time (string), "
                 "done (boolean: finished or scheduled), note (body/description). Uses POST /api/v2/activities."
             ),
         )
@@ -714,7 +762,7 @@ class PipedriveClient:
         # Create update_activity tool - allows updating an activity's fields
         update_activity_tool = create_langchain_tool(
             func=self.update_activity,
-            description="Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type, due_date, done, note). Uses PATCH /api/v2/activities/{activity_id}.",
+            description="Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type - must be one of: call, task, incoming_sms, outgoing_sms, due_date, done, note). Uses PATCH /api/v2/activities/{activity_id}.",
         )
         tools.append(update_activity_tool)
 

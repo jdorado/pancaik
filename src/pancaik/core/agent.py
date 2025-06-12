@@ -402,7 +402,6 @@ class Agent:
         processing_state = {
             "context": self.data_store.get("context", {}),
             "outputs": self.data_store.get("outputs", {}),
-            "data_store_keys": {k: v for k, v in self.data_store.items() if k not in ["context", "outputs", "config", "agent_id"]},
         }
 
         # Update agent with processing information and state (keep status as "scheduled")
@@ -738,13 +737,7 @@ class Agent:
                     self.data_store["outputs"] = processing_state["outputs"]
                     logger.info(f"Agent {self.id}: Restored {len(processing_state['outputs'])} output items")
 
-                # Restore other data_store keys
-                if "data_store_keys" in processing_state and processing_state["data_store_keys"]:
-                    self.data_store.update(processing_state["data_store_keys"])
-                    logger.info(f"Agent {self.id}: Restored {len(processing_state['data_store_keys'])} additional data store keys")
 
-            # Clear the resume_from_step and processing_state from config after using them
-            await AgentHandler.update_agent(self.id, {"resume_from_step": None, "processing_state": None})
 
         # Mark agent as running
         await AgentHandler.update_agent_status(self.id, "running")
@@ -760,6 +753,7 @@ class Agent:
                 return result
 
             # Update agent status with successful completion and last run time
+            # Clear resume data only after successful completion
             current_time = datetime.now(timezone.utc)
             await AgentHandler.update_agent_status(
                 self.id,
@@ -769,8 +763,8 @@ class Agent:
                     "error": None,
                     "retry_count": 0,
                     "next_run": None,
-                    "resume_from_step": None,  # Clear any remaining resume info
-                    "processing_state": None,  # Clear any remaining processing state
+                    "resume_from_step": None,  # Clear resume info after successful completion
+                    "processing_state": None,  # Clear processing state after successful completion
                     "processing_started_at": None,  # Clear processing metadata
                     "process_minutes": None,
                 },
@@ -815,10 +809,6 @@ class Agent:
                         "error": str(e),
                         "retry_count": 0,  # Reset retry count for manual runs
                         "next_run": None,
-                        "resume_from_step": None,  # Clear any remaining resume info
-                        "processing_state": None,  # Clear any remaining processing state
-                        "processing_started_at": None,  # Clear processing metadata
-                        "process_minutes": None,
                     },
                 )
                 raise  # Re-raise the exception for the caller to handle
@@ -835,10 +825,6 @@ class Agent:
                         "retry_count": retry_count,
                         "next_run": None,
                         "is_active": False,
-                        "resume_from_step": None,  # Clear any remaining resume info
-                        "processing_state": None,  # Clear any remaining processing state
-                        "processing_started_at": None,  # Clear processing metadata
-                        "process_minutes": None,
                     },
                 )
                 # Send critical alert for complete failure

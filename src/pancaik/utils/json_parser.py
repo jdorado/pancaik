@@ -34,6 +34,46 @@ def clean_json_string(json_str: str) -> str:
     return json_str.strip()
 
 
+def extract_json_with_braces(text: str) -> Optional[str]:
+    """
+    Extract JSON object from text by finding balanced braces.
+    Handles cases where there's text before the JSON object.
+    """
+    # Find the first opening brace
+    start_pos = text.find('{')
+    if start_pos == -1:
+        return None
+    
+    brace_count = 0
+    in_string = False
+    escape_next = False
+    
+    for i, char in enumerate(text[start_pos:], start_pos):
+        if escape_next:
+            escape_next = False
+            continue
+            
+        if char == '\\':
+            escape_next = True
+            continue
+            
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+            
+        if not in_string:
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                
+                # Found complete JSON object
+                if brace_count == 0:
+                    return text[start_pos:i+1]
+    
+    return None
+
+
 def wrap_list_if_needed(parsed_json: Union[Dict, List]) -> Dict:
     """Helper function to wrap lists in a dictionary if needed."""
     if isinstance(parsed_json, list):
@@ -58,7 +98,8 @@ def extract_json_content(text: str, schema_model: Optional[Type[T]] = None) -> O
     1. First tries using Langchain's JsonOutputParser.
     2. Falls back to a cleaned version using Langchain.
     3. Then searches for JSON delimited by triple backticks (even if extra text surrounds it).
-    4. Finally, falls back to regex-based extraction if necessary.
+    4. Uses brace matching to extract JSON objects from text with surrounding content.
+    5. Finally, falls back to regex-based extraction if necessary.
 
     Supports schema validation with Pydantic and will wrap arrays in a 'data' field.
     """
@@ -113,10 +154,23 @@ def extract_json_content(text: str, schema_model: Optional[Type[T]] = None) -> O
             except Exception as e:
                 logger.debug(f"Failed to parse JSON from code fence content: {e}")
 
-    # --- Attempt 4: Fallback with generic regex patterns ---
+    # --- Attempt 4: Brace matching extraction ---
+    try:
+        json_str = extract_json_with_braces(text)
+        if json_str:
+            json_str = clean_json_string(json_str)
+            parsed_json = json.loads(json_str)
+            result = wrap_list_if_needed(parsed_json)
+            if schema_model and result:
+                result = schema_model(**result).dict()
+            return result
+    except Exception as e:
+        logger.debug(f"Failed to parse JSON using brace matching: {e}")
+
+    # --- Attempt 5: Fallback with generic regex patterns ---
     json_patterns = [
         r"(?s)\{.*?\}",  # Match {...}
-        r"(?s)$begin:math:display$.*?$end:math:display$",  # Match [...]
+        r"(?s)\[.*?\]",  # Match [...]
     ]
     for pattern in json_patterns:
         for match in re.finditer(pattern, text):
