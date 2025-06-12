@@ -139,12 +139,6 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
             # Create LangChain tools from the client methods
             try:
                 pipedrive_tools = pipedrive_client.create_tools()
-                ai_logger.result(
-                    f"Successfully created {len(pipedrive_tools)} Pipedrive tools for LLM: {[tool.name for tool in pipedrive_tools]}",
-                    agent_id,
-                    account_id,
-                    agent_name,
-                )
             except ImportError:
                 ai_logger.error(
                     "LangChain dependencies not installed - cannot create tool calling capabilities", agent_id, account_id, agent_name
@@ -168,19 +162,19 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
                 "available_tools": [
                     "get_deals - Get deals from Pipedrive CRM with optional filtering by status, stage_id, owner, person, organization, or pipeline",
                     "get_persons - Get persons/contacts from Pipedrive CRM with optional filtering by person ID or organization",
+                    "update_deal - Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title)",
                 ],
-                "output_format": """OUTPUT IN JSON: Strict JSON format, no additional text.
-{
-    "success": boolean,
-    "action_taken": "string describing what was done",
-    "results_found": boolean,
-    "data_summary": "string summary of data retrieved",
-    "validation": {
-        "request_fulfilled": boolean,
-        "data_quality": "string (good/partial/poor)",
-        "error_message": "string (if any issues)"
+                "output_format": """OUTPUT IN JSON: Strict JSON format, no additional text.\n{
+    \"success\": boolean,
+    \"results_found\": boolean,  // true if any matching data was found, false if not
+    \"data_summary\": \"string summary of data retrieved or why no results\",
+    \"should_exit\": boolean,  // true if user explicitly requested to stop if no results, else false or omitted
+    \"validation\": {
+        \"request_fulfilled\": boolean,
+        \"data_quality\": \"string (good/partial/poor)\",
+        \"error_message\": \"string (if any actual error occurred, not for no results)\"
     },
-    "pipedrive_data": "relevant pipedrive data or null"
+    \"pipedrive_data\": \"relevant pipedrive data or null\"
 }""",
             }
 
@@ -196,6 +190,7 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
 AVAILABLE TOOLS:
 - get_deals: Retrieve deals from Pipedrive with filtering options
 - get_persons: Retrieve persons/contacts from Pipedrive with filtering options
+- update_deal: Update an existing deal's fields (pipeline_id, stage_id, value, etc.)
 
 PIPEDRIVE METADATA CONTEXT:
 {metadata_json}
@@ -207,6 +202,8 @@ INSTRUCTIONS:
 4. Validate that the results match what the user requested
 5. If the user asks for something specific (like a particular deal, stage, or person), verify it exists in the results
 6. Provide clear error messages if the requested data cannot be found or if the request is invalid
+7. If the user explicitly requests to stop or exit if no results are found, set 'should_exit' to true in your output. Otherwise, issue a warning in the output and continue with the pipeline.
+8. If no results are found, this is NOT an error, but a valid result. Do NOT set error_message for this case; instead, set results_found: false and provide a data_summary or warning message explaining no results were found.
 
 PARAMETER USAGE:
 For get_deals:
@@ -222,6 +219,11 @@ For get_persons:
 - Use 'org_id' for filtering persons by organization ID
 - Use 'limit' to control number of results returned (default: 100)
 
+For update_deal:
+- Always include the numeric 'deal_id' path parameter.
+- Provide any fields to update in the body, such as 'pipeline_id', 'stage_id', 'value', 'title', etc.
+- You can move a deal to another stage or pipeline by setting both 'pipeline_id' and 'stage_id' together.
+
 OUTPUT REQUIREMENTS:
 - Always respond in strict JSON format as specified in the prompt
 - Set "success" to true only if the request was fully satisfied
@@ -229,6 +231,8 @@ OUTPUT REQUIREMENTS:
 - Set "request_fulfilled" to true only if the user's specific request was met
 - Include clear validation messages about data quality and any issues
 - If user asks for a specific item that doesn't exist, mark as unsuccessful
+- If the user explicitly requests to stop or exit if no results are found, set 'should_exit' to true in your output. Otherwise, issue a warning in the output and continue with the pipeline.
+- If no results are found, this is NOT an error, but a valid result. Do NOT set error_message for this case; instead, set results_found: false and provide a data_summary or warning message explaining no results were found.
 
 CONNECTION: {pipedrive}
 CONTEXT: {context_json}"""
@@ -251,7 +255,7 @@ CONTEXT: {context_json}"""
                 tools=pipedrive_tools,
                 system_message=system_message,
                 max_iterations=5,
-                verbose=False,
+                verbose=True,
             )
 
             # Check if the agent result contains an error
@@ -302,11 +306,17 @@ CONTEXT: {context_json}"""
                 logger.error(f"Validation error for agent {agent_id}: {error_message}")
                 raise Exception(error_message)
 
-            # No results found - exit
+            # No results found - check LLM output for should_exit flag
             if not results_found:
-                ai_logger.result("No matching results found for the Pipedrive request - agent will exit", agent_id, account_id, agent_name)
-                logger.info(f"No results found for Pipedrive request from agent {agent_id}")
-                return {"should_exit": True}
+                should_exit = parsed_result.get("should_exit", False)
+                if should_exit:
+                    ai_logger.result("No matching results found for the Pipedrive request - agent will exit (LLM output should_exit=true)", agent_id, account_id, agent_name)
+                    logger.info(f"No results found for Pipedrive request from agent {agent_id} (LLM output should_exit=true)")
+                    return {"should_exit": True}
+                else:
+                    ai_logger.warning("No matching results found for the Pipedrive request - pipeline will continue (LLM output should_exit not set)", agent_id, account_id, agent_name)
+                    logger.warning(f"No results found for Pipedrive request from agent {agent_id}, pipeline will continue (LLM output should_exit not set)")
+                    return None
 
             # Results found and request fulfilled - return the data
             if request_fulfilled:

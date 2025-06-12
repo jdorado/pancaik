@@ -11,6 +11,30 @@ This module provides a template for creating new tools using the @tool decorator
 # - Do NOT use try/catch in the tool (the @tool decorator handles exceptions)
 # - Follow the sample code pattern and keep code modular, clear, and open source quality
 
+## Return Structure Guidelines:
+# ONLY return 'values' when you have meaningful data to add:
+# - 'context': Only include if you have new/updated context data to store
+# - 'output': Only include if you have meaningful output data to return
+# 
+# Clean return patterns:
+# 1. Success with data: {"values": {"context": {...}, "output": {...}}}
+# 2. Success with only context: {"values": {"context": {...}}}
+# 3. Success with only output: {"values": {"output": {...}}}
+# 4. Graceful exit (no data): {"should_exit": True}
+# 5. Processing mode: {"should_process": True, "process_minutes": X, "values": {...}} (only if you have data)
+#
+# DON'T return empty/meaningless values just to have something - keep it clean!
+#
+# Examples of GOOD returns:
+# return {"values": {"context": {"user_id": "123", "status": "verified"}}}  # Only context
+# return {"values": {"output": {"result": "success", "data": [...]}}}       # Only output  
+# return {"should_exit": True}                                              # Clean exit
+# 
+# Examples of BAD returns (avoid these):
+# return {"values": {"context": {}, "output": {}}}                         # Empty values
+# return {"values": {"context": {"status": "ok"}, "output": {"status": "ok"}}}  # Redundant
+# return {"should_exit": True, "values": {"context": {}}}                  # Unnecessary empty values
+
 ## Error Handling:
 # - For hard failures that should stop execution: raise Exception("error message")
 # - For graceful exits (user config issues, etc.): return {"should_exit": True}
@@ -19,9 +43,10 @@ This module provides a template for creating new tools using the @tool decorator
 ## Error Handling Pattern:
 # Two options for handling errors in tools:
 # 1. HARD FAILURE (must fail): Raise an exception - the @tool decorator will handle it
-# 2. GRACEFUL EXIT: Return {"should_exit": True, "values": {"context": {"error_message": "..."}}}
+# 2. GRACEFUL EXIT: Return {"should_exit": True}
 #    - Use this when the error is expected/recoverable and you want to end the pipeline gracefully
-#    - Don't return complex error objects, just set should_exit: True and add error context
+#    - Only add values if you have meaningful error context to preserve
+#    - Don't return complex error objects or empty data just to fill the structure
 
 ## Processing Mode Feature Usage:
 
@@ -137,27 +162,28 @@ async def sample_tool(
     should_process_execution = sample_param == "process_test"  # Example condition
     should_exit_pipeline = sample_param == "exit_test"  # Example condition
 
-    # Prepare context updates
+    # Example: Exit pipeline early if condition is met (clean exit - no unnecessary data)
+    if should_exit_pipeline:
+        logger.info(f"sample_tool for agent {agent_id}: Exiting pipeline early")
+        return {"should_exit": True}
+
+    # Example: Enter processing mode (only return values if you have meaningful data)
+    elif should_process_execution:
+        logger.info(f"sample_tool for agent {agent_id}: Entering processing mode for 15 minutes")
+        return {
+            "should_process": True,
+            "process_minutes": 15,
+            "values": {
+                "context": {"sample_tool_status": "processing_started", "process_timestamp": datetime.now(timezone.utc).isoformat()}
+            },
+        }
+
+    # Normal completion with meaningful data to return
     context_updates = {"sample_tool_result": processed_result, "sample_param_processed": sample_param, "last_tool_execution": "sample_tool"}
 
-    # Prepare output data
     output_data = {"tool_name": "sample_tool", "processed_data": processed_result, "status": "completed"}
 
-    # Build result dictionary
-    result = {"values": {"context": context_updates, "output": output_data}}
-
-    # Example: Exit pipeline early if condition is met
-    if should_exit_pipeline:
-        result["should_exit"] = True
-        logger.info(f"sample_tool for agent {agent_id}: Exiting pipeline early")
-
-    # Example: Enter processing mode to resume from next step after delay
-    elif should_process_execution:
-        result["should_process"] = True
-        result["process_minutes"] = 15  # Resume after 15 minutes
-        logger.info(f"sample_tool for agent {agent_id}: Entering processing mode for 15 minutes")
-
-    return result
+    return {"values": {"context": context_updates, "output": output_data}}
 
 
 @tool()

@@ -645,4 +645,11 @@ class PipedriveClient:
         )
         tools.append(get_persons_tool)
 
+        # Create update_deal tool - allows updating a deal's fields such as pipeline_id and stage_id
+        update_deal_tool = create_langchain_tool(
+            func=self.update_deal,
+            description="Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title).",
+        )
+        tools.append(update_deal_tool)
+
         return tools

@@ -30,7 +30,10 @@ def tool(*args, agents: Optional[List[str]] = None) -> Callable:
                 account_id = config.get("account_id")
                 agent_name = config.get("name")
 
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
+                if result is None:
+                    return {}
+                return result
             except Exception as e:
                 # Log error with AI logger if we have agent context
                 if agent_id and account_id:
