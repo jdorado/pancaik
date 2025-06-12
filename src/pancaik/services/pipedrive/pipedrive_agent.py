@@ -10,6 +10,7 @@ rather than being an all-encompassing Pipedrive agent.
 """
 
 import json
+import datetime
 from typing import Any, Dict
 
 from ...core.ai_logger import ai_logger
@@ -22,6 +23,15 @@ from ...utils.prompt_utils import get_prompt
 from .pipedrive_cache import load_and_cache_pipedrive_metadata, simplify_pipedrive_metadata
 from .pipedrive_client import PipedriveClient
 
+OUTPUT_FORMAT = (
+    """OUTPUT IN JSON: Strict JSON format, no additional text.\n{\n"
+    "    \"success\": boolean,\n"
+    "    \"results_found\": boolean,  // true if any matching data was found, false if not\n"
+    "    \"data_summary\": \"string summary of data retrieved or why no results\",\n"
+    "    \"should_exit\": boolean,  // true if user explicitly requested to stop if no results, else false or omitted\n"
+    "    \"pipedrive_data\": \"relevant pipedrive data or null\"\n"
+    "}"""
+)
 
 @tool()
 async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_instructions: str) -> Dict[str, Any]:
@@ -123,6 +133,10 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
     # Simplify cached metadata structure for the LLM
     simplified_metadata = simplify_pipedrive_metadata(cached_metadata)
 
+    # Add current UTC datetime to context for LLM awareness
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    context["current_utc_datetime"] = now_utc.isoformat()  # e.g., '2024-06-07T12:34:56.789012+00:00'
+
     ai_logger.thinking(
         f"Prepared simplified metadata context for LLM with {len(simplified_metadata)} metadata categories",
         agent_id,
@@ -160,22 +174,14 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
                 "agent_name": agent_name,
                 "pipedrive_metadata": simplified_metadata,
                 "available_tools": [
-                    "get_deals - Get deals from Pipedrive CRM with optional filtering by status, stage_id, owner, person, organization, or pipeline",
+                    "get_activities - Get activities from Pipedrive CRM with optional filtering by deal_id, person_id, org_id, start_date, end_date, filter_id, limit. Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters."
+                    "get_deals - Get deals from Pipedrive CRM with optional filtering by status, stage_id, owner, person, organization, pipeline, filter_id (Pipedrive filter ID), or ids[] (list of deal IDs)",
                     "get_persons - Get persons/contacts from Pipedrive CRM with optional filtering by person ID or organization",
-                    "update_deal - Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title)",
+                    "update_deal - Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title).",
+                    "update_activity - Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type, due_date, done, note).",
+                    "create_activity - Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least: deal_id (required), subject (required), type (required), due_date (string, e.g., '2024-06-01'), due_time (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS'), done (boolean: finished or scheduled), note (body/description). Uses POST /api/v2/activities. Example: {\"due_date\": \"2024-06-01\", \"due_time\": \"14:00\"}",
                 ],
-                "output_format": """OUTPUT IN JSON: Strict JSON format, no additional text.\n{
-    \"success\": boolean,
-    \"results_found\": boolean,  // true if any matching data was found, false if not
-    \"data_summary\": \"string summary of data retrieved or why no results\",
-    \"should_exit\": boolean,  // true if user explicitly requested to stop if no results, else false or omitted
-    \"validation\": {
-        \"request_fulfilled\": boolean,
-        \"data_quality\": \"string (good/partial/poor)\",
-        \"error_message\": \"string (if any actual error occurred, not for no results)\"
-    },
-    \"pipedrive_data\": \"relevant pipedrive data or null\"
-}""",
+                "output_format": OUTPUT_FORMAT,
             }
 
             prompt = get_prompt(prompt_data)
@@ -188,9 +194,20 @@ async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_
             system_message = f"""You are an expert Pipedrive CRM assistant for {agent_name}.
 
 AVAILABLE TOOLS:
-- get_deals: Retrieve deals from Pipedrive with filtering options
+- get_activities: Retrieve activities from Pipedrive with filtering options (deal_id, person_id, org_id, start_date, end_date, filter_id, limit). Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters.
+- get_deals: Retrieve deals from Pipedrive with filtering options (status, stage_id, owner_id, person_id, org_id, pipeline_id, filter_id, ids[])
 - get_persons: Retrieve persons/contacts from Pipedrive with filtering options
 - update_deal: Update an existing deal's fields (pipeline_id, stage_id, value, etc.)
+- update_activity: Update an existing activity's fields (subject, type, due_date, done, note, etc.)
+- create_activity: Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least:
+  - 'deal_id' (the deal to attach the activity to, required)
+  - 'subject' (required)
+  - 'type' (required, e.g., call, meeting, task)
+  - 'due_date' (string, e.g., '2024-06-01')
+  - 'due_time' (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS')
+  - 'done' (boolean: true for finished, false for scheduled)
+  - 'note' (body/description)
+- Uses POST /api/v2/activities. See Pipedrive v2 API docs for more details.
 
 PIPEDRIVE METADATA CONTEXT:
 {metadata_json}
@@ -206,6 +223,14 @@ INSTRUCTIONS:
 8. If no results are found, this is NOT an error, but a valid result. Do NOT set error_message for this case; instead, set results_found: false and provide a data_summary or warning message explaining no results were found.
 
 PARAMETER USAGE:
+For get_activities:
+- Use 'deal_id' to filter by deal
+- Use 'person_id' to filter by person
+- Use 'org_id' to filter by organization
+- Use 'start_date' and 'end_date' to filter by date range
+- Use 'filter_id' for filtering by Pipedrive filter ID
+- Use 'limit' to control number of results returned (default: 100)
+
 For get_deals:
 - Use 'status' for deal outcomes: 'open', 'won', 'lost', 'deleted', 'all_not_deleted'
 - Use 'stage_id' for specific stage filtering (numeric ID from metadata above)
@@ -213,6 +238,8 @@ For get_deals:
 - Use 'person_id' for filtering by associated contact/person
 - Use 'org_id' for filtering by organization
 - Use 'pipeline_id' for filtering by pipeline
+- Use 'filter_id' for filtering by Pipedrive filter ID
+- Use 'ids' for filtering by a list of deal IDs
 
 For get_persons:
 - Use 'person_id' to get a specific person by ID
@@ -224,11 +251,24 @@ For update_deal:
 - Provide any fields to update in the body, such as 'pipeline_id', 'stage_id', 'value', 'title', etc.
 - You can move a deal to another stage or pipeline by setting both 'pipeline_id' and 'stage_id' together.
 
+For update_activity:
+- Provide an activity_id and a dictionary of fields to update in the body.
+
+For create_activity:
+- Provide an activity_data dictionary for v2 Pipedrive API with at least:
+  - 'deal_id' (the deal to attach the activity to, required)
+  - 'subject' (required)
+  - 'type' (required, e.g., call, meeting, task)
+  - 'due_date' (string, e.g., '2024-06-01')
+  - 'due_time' (string, e.g., '14:00' -- must be in 'HH:MM' 24-hour format, NOT 'HH:MM:SS')
+  - 'done' (boolean: true for finished, false for scheduled)
+  - 'note' (body/description)
+- Uses POST /api/v2/activities. See Pipedrive v2 API docs for more details.
+
 OUTPUT REQUIREMENTS:
 - Always respond in strict JSON format as specified in the prompt
 - Set "success" to true only if the request was fully satisfied
 - Set "results_found" to true only if actual matching data was retrieved
-- Set "request_fulfilled" to true only if the user's specific request was met
 - Include clear validation messages about data quality and any issues
 - If user asks for a specific item that doesn't exist, mark as unsuccessful
 - If the user explicitly requests to stop or exit if no results are found, set 'should_exit' to true in your output. Otherwise, issue a warning in the output and continue with the pipeline.
@@ -254,7 +294,6 @@ CONTEXT: {context_json}"""
                 agent_mode=True,
                 tools=pipedrive_tools,
                 system_message=system_message,
-                max_iterations=5,
                 verbose=True,
             )
 
@@ -268,7 +307,7 @@ CONTEXT: {context_json}"""
             ai_logger.result(f"AI agent completed successfully in {total_steps} steps", agent_id, account_id, agent_name)
             logger.info(f"Pipedrive agent completed {total_steps} steps for agent {agent_id}")
 
-            # Parse the agent's JSON response for validation
+            # Parse the agent's JSON response for result quality
             ai_logger.action("Parsing and validating agent's JSON response for result quality", agent_id, account_id, agent_name)
 
             final_output = agent_result.get("final_output", "")
@@ -286,25 +325,16 @@ CONTEXT: {context_json}"""
                 logger.error(f"Agent {agent_id} returned no output")
                 raise Exception("Agent returned no output")
 
-            # Extract key validation information
+            # Extract key result information
             results_found = parsed_result.get("results_found", False)
-            validation = parsed_result.get("validation", {})
-            request_fulfilled = validation.get("request_fulfilled", False)
-            error_message = validation.get("error_message")
-            data_quality = validation.get("data_quality", "unknown")
+            data_summary = parsed_result.get("data_summary", "Data retrieved successfully")
 
             ai_logger.thinking(
-                f"Validation results: results_found={results_found}, request_fulfilled={request_fulfilled}, data_quality={data_quality}",
+                f"Results: results_found={results_found}, data_summary={data_summary}",
                 agent_id,
                 account_id,
                 agent_name,
             )
-
-            # Check for validation error message
-            if error_message:
-                ai_logger.error(f"Agent validation failed: {error_message}", agent_id, account_id, agent_name)
-                logger.error(f"Validation error for agent {agent_id}: {error_message}")
-                raise Exception(error_message)
 
             # No results found - check LLM output for should_exit flag
             if not results_found:
@@ -318,22 +348,13 @@ CONTEXT: {context_json}"""
                     logger.warning(f"No results found for Pipedrive request from agent {agent_id}, pipeline will continue (LLM output should_exit not set)")
                     return None
 
-            # Results found and request fulfilled - return the data
-            if request_fulfilled:
-                result = parsed_result.get("pipedrive_data")
-                data_summary = parsed_result.get("data_summary", "Data retrieved successfully")
+            # Results found - return the data
+            result = parsed_result.get("pipedrive_data")
 
-                ai_logger.result(f"Request fulfilled successfully: {data_summary}", agent_id, account_id, agent_name)
-                logger.info(f"Pipedrive request fulfilled successfully for agent {agent_id}")
+            ai_logger.result(f"Request fulfilled successfully: {data_summary}", agent_id, account_id, agent_name)
+            logger.info(f"Pipedrive request fulfilled successfully for agent {agent_id}")
 
-                return {"values": {"context": result, "output": result}}
-
-            # Results found but request not fulfilled - raise error
-            ai_logger.error(
-                f"Results found but request could not be fulfilled - data quality: {data_quality}", agent_id, account_id, agent_name
-            )
-            logger.error(f"Request not fulfilled for agent {agent_id}")
-            raise Exception("Request could not be fulfilled with the found results")
+            return {"values": {"context": result, "output": result}}
 
     except Exception as e:
         ai_logger.error(f"Pipedrive agent execution failed: {str(e)}", agent_id, account_id, agent_name)

@@ -152,7 +152,9 @@ class PipedriveClient:
         person_id: Optional[int] = None,
         org_id: Optional[int] = None,
         pipeline_id: Optional[int] = None,
-        limit: int = 100,
+        filter_id: Optional[int] = None,
+        ids: Optional[List[int]] = None,
+        limit: int = 1,
         cursor: Optional[str] = None,
     ) -> str:
         """
@@ -165,6 +167,8 @@ class PipedriveClient:
             person_id: Filter by associated person ID
             org_id: Filter by associated organization ID
             pipeline_id: Filter by pipeline ID
+            filter_id: Filter by Pipedrive filter ID
+            ids: List of deal IDs to filter (comma-separated in API)
             limit: Maximum number of deals to return (default: 100)
             cursor: Cursor for pagination
 
@@ -184,6 +188,15 @@ class PipedriveClient:
             params["org_id"] = org_id
         if pipeline_id:
             params["pipeline_id"] = pipeline_id
+        if filter_id:
+            params["filter_id"] = filter_id
+        if ids:
+            if isinstance(ids, str):
+                params["ids"] = ids
+            elif isinstance(ids, list):
+                params["ids"] = ids
+            else:
+                params["ids"] = ",".join(str(i) for i in ids)
         if cursor:
             params["cursor"] = cursor
 
@@ -204,6 +217,8 @@ class PipedriveClient:
                     "person_id": person_id,
                     "org_id": org_id,
                     "pipeline_id": pipeline_id,
+                    "filter_id": filter_id,
+                    "ids": ids,
                     "limit": limit,
                 },
             }
@@ -370,10 +385,30 @@ class PipedriveClient:
         org_id: Optional[int] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        limit: int = 100,
+        filter_id: Optional[int] = None,
+        sort_by: Optional[str] = "due_date",
+        sort_direction: Optional[str] = "asc",
+        limit: int = 1,
         cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Get activities with optional filtering using v2 API."""
+        """
+        Get activities with optional filtering using v2 API.
+
+        Args:
+            deal_id: Filter by deal ID
+            person_id: Filter by person ID
+            org_id: Filter by organization ID
+            start_date: Filter by start date (YYYY-MM-DD)
+            end_date: Filter by end date (YYYY-MM-DD)
+            filter_id: Filter by Pipedrive filter ID
+            sort_by: Sort by field
+            sort_direction: Sort direction
+            limit: Maximum number of activities to return (default: 100)
+            cursor: Cursor for pagination
+
+        Returns:
+            Dictionary with activity data and metadata
+        """
         params = {"limit": limit}
         if deal_id:
             params["deal_id"] = deal_id
@@ -385,6 +420,12 @@ class PipedriveClient:
             params["start_date"] = start_date
         if end_date:
             params["end_date"] = end_date
+        if filter_id:
+            params["filter_id"] = filter_id
+        if sort_by:
+            params["sort_by"] = sort_by
+        if sort_direction:
+            params["sort_direction"] = sort_direction
         if cursor:
             params["cursor"] = cursor
 
@@ -634,7 +675,7 @@ class PipedriveClient:
         # Create get_deals tool - only pass description, not name
         get_deals_tool = create_langchain_tool(
             func=self.get_deals,
-            description="Get deals from Pipedrive CRM with optional filtering by status ('open', 'won', 'lost', 'deleted'), stage_id (numeric), owner_id, person_id, org_id, or pipeline_id",
+            description="Get deals from Pipedrive CRM with optional filtering by status ('open', 'won', 'lost', 'deleted'), stage_id (numeric), owner_id, person_id, org_id, pipeline_id, filter_id (Pipedrive filter ID), or ids[] (list of deal IDs)",
         )
         tools.append(get_deals_tool)
 
@@ -651,5 +692,30 @@ class PipedriveClient:
             description="Update an existing deal in Pipedrive CRM. Provide deal_id and the fields to update (e.g., pipeline_id, stage_id, value, title).",
         )
         tools.append(update_deal_tool)
+
+        # Create create_activity tool - allows adding an activity to a deal
+        create_activity_tool = create_langchain_tool(
+            func=self.create_activity,
+            description=(
+                "Add an activity to a deal in Pipedrive CRM (v2 API). Provide activity_data with at least: "
+                "deal_id (required), subject (required), type (required), due_date (string), due_time (string), "
+                "done (boolean: finished or scheduled), note (body/description). Uses POST /api/v2/activities."
+            ),
+        )
+        tools.append(create_activity_tool)
+
+        # Create get_activities tool - allows retrieving activities with due_date filtering
+        get_activities_tool = create_langchain_tool(
+            func=self.get_activities,
+            description="Get activities from Pipedrive CRM with optional filtering by deal_id, person_id, org_id, start_date, end_date, filter_id, limit. Use this tool to get activities that are due soon, due today, or overdue by filtering on due_date. If the user asks for 'activities due', use this tool with due_date filters."
+        )
+        tools.append(get_activities_tool)
+
+        # Create update_activity tool - allows updating an activity's fields
+        update_activity_tool = create_langchain_tool(
+            func=self.update_activity,
+            description="Update an existing activity in Pipedrive CRM. Provide activity_id and the fields to update (e.g., subject, type, due_date, done, note). Uses PATCH /api/v2/activities/{activity_id}.",
+        )
+        tools.append(update_activity_tool)
 
         return tools
