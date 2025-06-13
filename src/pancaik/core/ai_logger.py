@@ -203,8 +203,6 @@ class AILogger:
         if log_type in ("warning", "error"):
             log_entry["is_user_facing"] = True
 
-        logger.info(f"AI {log_type.title()} [{agent_id}]: {message}")
-
         # Check if immediate mode is enabled
         if self._immediate_mode:
             # Write directly to MongoDB bypassing the queue

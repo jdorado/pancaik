@@ -453,7 +453,6 @@ class Agent:
                     logger.info(f"Agent {self.id}: Skipping non-scheduler trigger '{trigger['id']}' in schedule_next_run")
                     continue
 
-                logger.info(f"Agent {self.id}: Starting execution of trigger '{trigger['id']}'")
                 result = await self.run_tool(trigger, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of trigger '{trigger['id']}'")
 
@@ -788,7 +787,7 @@ class Agent:
 
                 # Send resolution alert after scheduling
                 await send_alert(
-                    event=f"{self.id}: ({self.config['name']}) completed successfully", dedup_key=self.id, is_resolve=True, severity="info"
+                    event=f"{self.id}: ({self.config.get('name')}) completed successfully", dedup_key=self.id, is_resolve=True, severity="info"
                 )
 
             return result
@@ -841,7 +840,7 @@ class Agent:
                 )
                 # Send critical alert for complete failure
                 await send_alert(
-                    event=f"{self.id}: ({self.config['name']}) failed permanently",
+                    event=f"{self.id}: ({self.config.get('name')}) failed permanently",
                     dedup_key=self.id,
                     details={"error": str(e), "retry_count": retry_count, "max_retries": max_retries},
                     severity="error",

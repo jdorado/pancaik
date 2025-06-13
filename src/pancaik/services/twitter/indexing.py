@@ -568,7 +568,7 @@ async def get_filtered_following_handles(
 
     ai_logger.action(f"Fetching following list for user {target_handle}...", agent_id, account_id, agent_name)
     # Get the following list
-    following_list = await twitter.get_following(user_id)
+    following_list = await twitter.get_following(user_id=user_id, username=target_handle)
 
     if not following_list:
         logger.info(f"No following users found for {target_handle}")

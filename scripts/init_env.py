@@ -14,11 +14,12 @@ KEYCHAIN_SECRETS = [
     ("ezenciel", "ENCRYPTION_KEY", None),
     ("global", "OPENROUTER_API_KEY", None),
     ("global", "GEMINI_API_KEY", None),
+    ("ezenciel", "ENCRYPTION_KEY", None),
 ]
 
 
 def load_keychain_secrets():
-    keychain_path = os.path.join(os.path.dirname(__file__), "ezenciel_agent", "keychain.py")
+    keychain_path = os.path.join(os.path.dirname(__file__), "keychain.py")
     if os.path.exists(keychain_path):
         spec = importlib.util.spec_from_file_location("keychain", keychain_path)
         keychain = importlib.util.module_from_spec(spec)
@@ -38,5 +39,9 @@ async def init_env(config: Optional[Dict[str, Any]] = None):
             "db_connection": os.getenv("MONGO_CONNECTION", "mongodb://localhost:27017/pancaik"),
             "x_api_url": os.getenv("X_API", "http://localhost:6011/api"),
             "firecrawl_api_key": os.getenv("FIRECRAWL_API_KEY", ""),
+            "twitter_consumer_key": "54BTR8j7PjAWPYFWn81iabC3L",
+            "twitter_consumer_secret": "w2LrT4n2bqpQu4hYCRctggrH7hFfkVkpWU2hhNFAML95IBeIpQ",
+            "twitter_bearer_token": "AAAAAAAAAAAAAAAAAAAAAATI2QEAAAAALTdiUe%2FF35XAtLHfT3327i8YfTc%3DkKmF0X9NCSKz9LuECvj6NLCu0IsX5UozvpvorweiUNNzaoZp9h",
+            "twitter_api_key": "dc7b18913ea64203b5e272266ef1fcf8",
         }
     await init(config)

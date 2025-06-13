@@ -410,11 +410,26 @@ class DirectTwitterClient(TwitterClient):
     async def get_latest_tweets(self, username: str, user_id: Optional[str] = None):
         return await get_latest_tweets(self.credentials, username, user_id)
 
-    async def search(self, query: str):
+    async def search(self, query: str, **kwargs):
         return await search(query, self.credentials)
 
     async def get_tweet(self, tweet_id: str):
         return await get_tweet(tweet_id, self.credentials)
 
-    async def get_following(self, user_id: str) -> Optional[List[Dict]]:
+    async def get_following(self, user_id: Optional[str] = None, username: Optional[str] = None) -> Optional[List[Dict]]:
+        if not user_id and not username:
+            raise ValueError("Either user_id or username must be provided")
+        
+        # For direct client, we need user_id for the API call
+        if not user_id and username:
+            # Try to get user_id from profile
+            try:
+                profile = await get_profile(username, self.credentials)
+                if profile and "id" in profile:
+                    user_id = profile["id"]
+                else:
+                    raise ValueError(f"Could not get user_id for username: {username}")
+            except Exception as e:
+                raise ValueError(f"Failed to get user_id for username '{username}': {e}")
+        
         return await get_following(user_id, self.credentials) 

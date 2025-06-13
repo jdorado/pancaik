@@ -64,11 +64,12 @@ class TwitterClient(TestableConnection):
         """
         raise NotImplementedError("Get latest tweets not implemented for base TwitterClient")
 
-    async def search(self, query: str) -> Optional[List[Dict]]:
+    async def search(self, query: str, **kwargs) -> Optional[List[Dict]]:
         """Search tweets based on a query.
 
         Args:
             query: The search query string
+            **kwargs: Additional search parameters (implementation-specific)
 
         Returns:
             Optional[List[Dict]]: List of matching tweets if successful, None otherwise
@@ -86,11 +87,12 @@ class TwitterClient(TestableConnection):
         """
         raise NotImplementedError("Get tweet not implemented for base TwitterClient")
 
-    async def get_following(self, user_id: str) -> Optional[List[Dict]]:
+    async def get_following(self, user_id: Optional[str] = None, username: Optional[str] = None) -> Optional[List[Dict]]:
         """Get following list for a specific user.
 
         Args:
-            user_id: The user ID to get following for
+            user_id: The user ID to get following for (optional)
+            username: The username to get following for (optional)
 
         Returns:
             Optional[List[Dict]]: List of following data if successful, None otherwise

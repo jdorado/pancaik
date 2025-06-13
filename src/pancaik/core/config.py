@@ -51,7 +51,7 @@ logger.add(
     colorize=True,
     backtrace=True,
     diagnose=True,
-    enqueue=True,
+    enqueue=False,  # Changed from True to False to reduce lag
     catch=True,
 )
 
