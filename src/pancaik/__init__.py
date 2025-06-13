@@ -80,30 +80,21 @@ async def init(config: Optional[Dict[str, Any]] = None, app: Optional[FastAPI] =
     if missing_params:
         raise ValueError(f"Missing required configuration parameters: {', '.join(missing_params)}")
 
-    # Update global configuration
+    # Update global configuration - this automatically sets all config values
     update_config(config)
 
     # Initialize and store database instance in config
     db = init_db(config["db_connection"])
     set_config("db", db)
 
-    # Create Twitter semaphore for rate limiting
-    twitter_concurrency = config.get("twitter_concurrency", 5)
-    set_config("twitter_semaphore", asyncio.Semaphore(twitter_concurrency))
-
-    # Set twitter_max_concurrent_indexing_users config
-    twitter_max_concurrent_indexing_users = config.get("twitter_max_concurrent_indexing_users", 30)
-    set_config("twitter_max_concurrent_indexing_users", twitter_max_concurrent_indexing_users)
-
-    # Set PagerDuty configuration
-    set_config("pagerduty_key", config.get("pagerduty_key"))
+    # Set config values with defaults (in case they're not passed in config)
+    set_config("twitter_concurrency", config.get("twitter_concurrency", 5))
+    set_config("twitter_max_concurrent_indexing_users", config.get("twitter_max_concurrent_indexing_users", 30))
     set_config("pagerduty_inactive", config.get("pagerduty_inactive", False))
 
-    # Set Firecrawl configuration
-    set_config("firecrawl_api_key", config.get("firecrawl_api_key"))
-
-    # Set Email configuration
-    set_config("email_token", config.get("email_token"))
+    # Create Twitter semaphore for rate limiting (needs special processing)
+    twitter_concurrency = config.get("twitter_concurrency", 5)
+    set_config("twitter_semaphore", asyncio.Semaphore(twitter_concurrency))
 
     # Start continuous task runner if configured
     task = None

@@ -30,11 +30,14 @@ async def main():
         "db_connection": os.getenv("MONGO_CONNECTION", "mongodb://localhost:27017/pancaik"),
         "x_api_url": os.getenv("X_API", "http://localhost:6011/api"),
         "firecrawl_api_key": "fc-79e1e50bf0da4a4fbfcfd85de4dc4944",
+        "twitter_consumer_key": "54BTR8j7PjAWPYFWn81iabC3L",
+        "twitter_consumer_secret": "w2LrT4n2bqpQu4hYCRctggrH7hFfkVkpWU2hhNFAML95IBeIpQ",
+        "twitter_bearer_token": "AAAAAAAAAAAAAAAAAAAAAATI2QEAAAAALTdiUe%2FF35XAtLHfT3327i8YfTc%3DkKmF0X9NCSKz9LuECvj6NLCu0IsX5UozvpvorweiUNNzaoZp9h",
     }
     await init(config)
 
     # run specific task
-    agent_id = "684b94eab09b2080e7bdd8f0"
+    agent_id = "684bffb42681b84d3d782372"
 
     # Load agent config from the database
     logger.info(f"Loading agent config for ID: {agent_id}")
@@ -48,8 +51,8 @@ async def main():
 
     # You can now use agent_data for further processing
     agent = Agent(id=agent_id, config=agent_data)
-    # await agent.run(simulate=False)
-    await agent.execute()
+    await agent.run(simulate=False)
+    # await agent.execute()
 
     return
 

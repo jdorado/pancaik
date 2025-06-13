@@ -11,12 +11,10 @@ import io
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
-import tweepy
-from tweepy.asynchronous import AsyncClient
 
-from ...core.config import get_config, logger
-from .models import format_tweet
-
+from ....core.config import get_config, logger
+from ..models import format_tweet
+from .base import TwitterClient
 
 def get_x_api_url() -> str:
     """Get the X-API URL from config.
@@ -41,31 +39,6 @@ async def post(url: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"{url}: {str(e)}")
         return None
-
-
-def get_async_client(twitter: Dict[str, str]) -> AsyncClient:
-    """Initialize Tweepy AsyncClient."""
-    assert twitter, "Twitter credentials must not be empty"
-    return AsyncClient(
-        consumer_key=twitter["consumer_key"],
-        consumer_secret=twitter["consumer_secret"],
-        access_token=twitter.get("access_token"),
-        access_token_secret=twitter.get("access_token_secret"),
-        bearer_token=twitter["bearer_token"],
-    )
-
-
-def get_api(twitter: Dict[str, str]) -> tweepy.API:
-    """Initialize Tweepy API client."""
-    assert twitter, "Twitter credentials must not be empty"
-    auth = tweepy.OAuth1UserHandler(
-        consumer_key=twitter["consumer_key"],
-        consumer_secret=twitter["consumer_secret"],
-        access_token=twitter.get("access_token"),
-        access_token_secret=twitter.get("access_token_secret"),
-    )
-    return tweepy.API(auth)
-
 
 # Direct API endpoints
 
@@ -180,43 +153,6 @@ async def get_following_raw(user_id: str, credentials: Dict[str, str]) -> Option
 
 
 # High-level operations
-
-
-async def download_image(url: str) -> Optional[bytes]:
-    """Download image from URL."""
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status == 200:
-                    return await resp.read()
-        logger.warning(f"Image download failed: {url}")
-    except Exception as e:
-        logger.warning(f"Download error for URL '{url}': {e}")
-    return None
-
-
-async def upload_media(twitter: Dict[str, str], data: bytes, filename: str = "image.jpg") -> Optional[int]:
-    """Upload media to Twitter."""
-    try:
-        tweepy_api = get_api(twitter)
-        media = tweepy_api.media_upload(filename, file=io.BytesIO(data))
-        return media.media_id
-    except Exception as e:
-        logger.warning(f"Media upload failed for user '{twitter.get('username', 'Unknown')}': {e}")
-    return None
-
-
-async def process_images(twitter: Dict, urls: Union[str, List[str]]) -> List[int]:
-    """Process and upload multiple images."""
-    urls = [urls] if isinstance(urls, str) else urls
-    media_ids = []
-    for url in urls:
-        data = await download_image(url)
-        if data:
-            media_id = await upload_media(twitter, data)
-            if media_id:
-                media_ids.append(media_id)
-    return media_ids
 
 
 async def create_tweet(
@@ -426,3 +362,59 @@ async def get_following(user_id: str, twitter: Dict) -> Optional[List[Dict]]:
     except Exception as e:
         logger.warning(f"Failed to fetch following for user ID '{user_id}' by user '{username}': {e}")
     return None
+
+
+class DirectTwitterClient(TwitterClient):
+    """Twitter client using direct authentication."""
+
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        email: Optional[str] = None,
+        twoFactorSecret: Optional[str] = None,
+        cookies: Optional[str] = None,
+    ):
+        self.credentials = {"username": username, "password": password}
+        if email:
+            self.credentials["email"] = email
+        if twoFactorSecret:
+            self.credentials["twoFactorSecret"] = twoFactorSecret
+        if cookies:
+            self.credentials["cookies"] = cookies
+
+    def get_username(self) -> str:
+        """Get the username of the authenticated client."""
+        return self.credentials["username"]
+
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test the connection by attempting to login with credentials."""
+        try:
+            profile = await login(self.credentials)
+            if profile and profile.get("id"):
+                return {"success": True, "message": "Successfully authenticated", "data": {"profile_id": profile.get("id")}}
+            return {"success": False, "message": "Failed to authenticate", "data": None}
+        except Exception as e:
+            return {"success": False, "message": f"Authentication failed: {str(e)}", "data": None}
+
+    async def get_profile(self, username: str) -> Optional[Dict[str, Any]]:
+        """Get a Twitter user's profile information."""
+        return await get_profile(username, self.credentials)
+
+    async def create_tweet(self, text: str, images=None, reply_id=None, quote_id=None, media_data=None):
+        return await create_tweet(self.credentials, text, images, reply_id, quote_id, media_data)
+
+    async def create_thread(self, texts, image_urls=None):
+        return await create_thread(self.credentials, texts, image_urls)
+
+    async def get_latest_tweets(self, username: str, user_id: Optional[str] = None):
+        return await get_latest_tweets(self.credentials, username, user_id)
+
+    async def search(self, query: str):
+        return await search(query, self.credentials)
+
+    async def get_tweet(self, tweet_id: str):
+        return await get_tweet(tweet_id, self.credentials)
+
+    async def get_following(self, user_id: str) -> Optional[List[Dict]]:
+        return await get_following(user_id, self.credentials) 
