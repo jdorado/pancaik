@@ -28,7 +28,6 @@ class APIRequestConfig(BaseModel):
     headers: Optional[Dict[str, Any]] = None
     response_handling: str
     custom_processing: Optional[str] = None
-    error_handling: Literal["stop", "continue"] = "stop"
 
     @validator("http_method")
     def validate_http_method(cls, v):
@@ -50,7 +49,6 @@ async def api_request(
     http_method: str = "get",
     request_body: Optional[str] = None,
     headers: Optional[str] = None,
-    error_handling: str = "stop",
 ) -> Dict[str, Any]:
     """
     Make HTTP requests to external APIs with customizable configuration.
@@ -61,7 +59,6 @@ async def api_request(
         http_method: HTTP method (GET or POST)
         request_body: JSON string containing request body for POST requests
         headers: JSON string containing custom headers
-        error_handling: How to handle errors ('stop' or 'continue')
 
     Returns:
         Dictionary containing the API response
@@ -77,20 +74,12 @@ async def api_request(
     agent_name = config.get("name")
 
     # Parse and validate inputs
-    try:
-        parsed_body = json.loads(request_body) if request_body else None
-        parsed_headers = json.loads(headers) if headers else {}
+    parsed_body = json.loads(request_body) if request_body else None
+    parsed_headers = json.loads(headers) if headers else {}
 
-        # Validate HTTP method
-        if http_method.lower() not in ["get", "post"]:
-            raise ValueError("HTTP method must be either GET or POST")
-    except (json.JSONDecodeError, ValueError) as e:
-        error_msg = f"Input validation error: {str(e)}"
-        ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        return {
-            "values": {"context": {"error": str(e)}, "output": {"status": "error", "message": str(e)}},
-            "should_exit": error_handling == "stop",
-        }
+    # Validate HTTP method
+    if http_method.lower() not in ["get", "post"]:
+        raise ValueError("HTTP method must be either GET or POST")
 
     # Prepare request
     request_kwargs = {"headers": parsed_headers or {}, "ssl": False}  # For development/testing - adjust based on needs
@@ -100,31 +89,16 @@ async def api_request(
     ai_logger.action(f"Executing {http_method.upper()} request to {api_url}", agent_id, account_id, agent_name)
 
     # Make request
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with getattr(session, http_method.lower())(str(api_url), **request_kwargs) as response:
-                status = response.status
-                response_data = await response.json()
+    async with aiohttp.ClientSession() as session:
+        async with getattr(session, http_method.lower())(str(api_url), **request_kwargs) as response:
+            status = response.status
+            response_data = await response.json()
 
-                # Check for empty/None response data even with successful status
-                if response_data is None or (isinstance(response_data, (dict, list)) and not response_data):
-                    error_msg = "API returned empty or null response"
-                    ai_logger.warning(error_msg, agent_id, account_id, agent_name)
-                    return {
-                        "values": {
-                            "context": {"error": error_msg, "status_code": status},
-                            "output": {"status": "error", "message": error_msg},
-                        },
-                        "should_exit": error_handling == "stop",
-                    }
-
-    except Exception as e:
-        error_msg = f"API request error: {str(e)}"
-        ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        return {
-            "values": {"context": {"error": str(e)}, "output": {"status": "error", "message": str(e)}},
-            "should_exit": error_handling == "stop",
-        }
+            # Check for empty/None response data even with successful status
+            if response_data is None or (isinstance(response_data, (dict, list)) and not response_data):
+                error_msg = "API returned empty or null response"
+                ai_logger.warning(error_msg, agent_id, account_id, agent_name)
+                raise ValueError(error_msg)
 
     context = {"api_response": response_data}
 
