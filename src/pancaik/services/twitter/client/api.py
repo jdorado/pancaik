@@ -55,7 +55,7 @@ class ApiTwitterClient(TwitterClient):
             consumer_secret=consumer_secret,
             access_token=access_token,
             access_token_secret=access_token_secret,
-            wait_on_rate_limit=True
+            wait_on_rate_limit=False
         )
         
         # API v1.1 for media uploads
@@ -162,7 +162,7 @@ class ApiTwitterClient(TwitterClient):
         """Upload media to Twitter.
 
         Args:
-            data: The binary data of the media file
+            data: The binary data of the media file, or a list of integers representing bytes
             filename: The name of the file (default: image.jpg)
 
         Returns:
@@ -172,13 +172,28 @@ class ApiTwitterClient(TwitterClient):
             logger.error("Media upload requires API v1.1 credentials (consumer and access tokens).")
             return None
         try:
+            if isinstance(data, list):
+                # Convert list of integers to bytes
+                try:
+                    data = bytes(data)
+                    logger.info("Converted list of numbers to bytes for media upload.")
+                except Exception as e:
+                    logger.error(f"Failed to convert list to bytes for media upload: {str(e)}. Data: {data}")
+                    return None
+            elif not isinstance(data, bytes):
+                logger.error(f"Invalid data type for media upload: {type(data)}. Expected bytes or list of integers. Data: {data}")
+                return None
             # Create a file-like object from bytes
             media_file = io.BytesIO(data)
             media_file.name = filename
             
-            # Upload media using tweepy's media upload
-            # Note: This requires API v1.1 access
-            media = self.api_v1.media_upload(filename=filename, file=media_file)
+            from ....utils.async_utils import force_async
+            
+            @force_async
+            def upload_media_sync(api, filename, file_obj):
+                return api.media_upload(filename=filename, file=file_obj)
+            
+            media = await upload_media_sync(self.api_v1, filename, media_file)
             return media.media_id
         except Exception as e:
             logger.error(f"Failed to upload media: {str(e)}")
@@ -211,7 +226,7 @@ class ApiTwitterClient(TwitterClient):
             image_urls: Optional image URLs to attach
             reply_id: Optional ID of tweet to reply to
             quote_id: Optional ID of tweet to quote
-            media_data: Optional media data (bytes) to attach to the tweet
+            media_data: Optional media data to attach to the tweet, can be bytes or list of dicts with 'data' and 'mediaType'
         Returns:
             Optional[Dict]: Tweet data if successful, None otherwise
         """
@@ -226,7 +241,12 @@ class ApiTwitterClient(TwitterClient):
             if media_data:
                 if isinstance(media_data, list):
                     for media in media_data:
-                        if isinstance(media, bytes):
+                        if isinstance(media, dict) and 'data' in media and 'mediaType' in media:
+                            filename = f"media.{media['mediaType'].split('/')[-1]}"
+                            media_id = await self.upload_media(media['data'], filename=filename)
+                            if media_id:
+                                media_ids.append(media_id)
+                        elif isinstance(media, bytes):
                             media_id = await self.upload_media(media)
                             if media_id:
                                 media_ids.append(media_id)
@@ -454,4 +474,46 @@ class ApiTwitterClient(TwitterClient):
             return []
         except Exception as e:
             logger.error(f"Failed to get following for user {user_id}: {str(e)}")
-            return None 
+            return None
+
+    async def get_rate_limit_status(self) -> dict:
+        """
+        Retrieve the current rate limit status for Twitter API endpoints.
+
+        Returns:
+            dict: A dictionary containing rate limit information for various API endpoints.
+        """
+        if not self.api_v1:
+            logger.error("Rate limit status requires API v1.1 credentials (consumer and access tokens).")
+            return {}
+        try:
+            from ....utils.async_utils import force_async
+            
+            @force_async
+            def get_rate_limit_sync(api):
+                return api.rate_limit_status()
+            
+            rate_limit_status = await get_rate_limit_sync(self.api_v1)
+            return rate_limit_status
+        except Exception as e:
+            logger.error(f"Failed to get rate limit status: {str(e)}")
+            return {}
+
+    async def is_rate_limit_exceeded(self) -> dict:
+        """
+        Check if the rate limit for tweet creation is exceeded.
+
+        Returns:
+            dict: A dictionary with 'exceeded' boolean and 'retry_after_minutes' if exceeded.
+        """
+        rate_limit_status = await self.get_rate_limit_status()
+        tweet_resource = rate_limit_status.get("resources", {}).get("tweets", {}).get("/tweets/", {})
+        remaining = tweet_resource.get("remaining", 0)
+        if remaining == 0:
+            reset_time = tweet_resource.get("reset", 0)
+            from datetime import datetime
+            current_time = int(datetime.now().timestamp())
+            if reset_time > current_time:
+                wait_minutes = max(1, (reset_time - current_time) // 60 + 1)
+                return {"exceeded": True, "retry_after_minutes": wait_minutes}
+        return {"exceeded": False, "retry_after_minutes": 0} 

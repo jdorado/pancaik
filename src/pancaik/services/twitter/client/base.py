@@ -95,4 +95,22 @@ class TwitterClient(TestableConnection):
         Returns:
             Optional[List[Dict]]: List of following data if successful, None otherwise
         """
-        raise NotImplementedError("Get following not implemented for base TwitterClient") 
+        raise NotImplementedError("Get following not implemented for base TwitterClient")
+
+    async def get_rate_limit_status(self) -> dict:
+        """
+        Retrieve the current rate limit status for Twitter API endpoints.
+
+        Returns:
+            dict: A dictionary containing rate limit information for various API endpoints.
+        """
+        raise NotImplementedError("Get rate limit status not implemented for base TwitterClient")
+
+    async def is_rate_limit_exceeded(self) -> dict:
+        """
+        Check if the rate limit for tweet creation is exceeded.
+
+        Returns:
+            dict: A dictionary with 'exceeded' boolean and 'retry_after_minutes' if exceeded.
+        """
+        return {"exceeded": False, "retry_after_minutes": 0} 

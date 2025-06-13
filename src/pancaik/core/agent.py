@@ -766,7 +766,6 @@ class Agent:
                 return result
 
             # Update agent status with successful completion and last run time
-            # Clear resume data only after successful completion
             current_time = datetime.now(timezone.utc)
             await AgentHandler.update_agent_status(
                 self.id,

@@ -5,6 +5,7 @@ This module provides tools for composing and publishing tweets.
 """
 
 from typing import Any, Dict, Optional
+from datetime import datetime
 
 from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
@@ -83,6 +84,15 @@ async def twitter_publish_post(
 
     # Publish the tweet
     ai_logger.action(f"Publishing tweet{f' as {interaction_type}' if interaction_type else ''}.", agent_id, account_id, agent_name)
+
+    # Check rate limit status before attempting to publish
+    rate_limit_check = await twitter.is_rate_limit_exceeded()
+    if rate_limit_check["exceeded"]:
+        wait_minutes = rate_limit_check["retry_after_minutes"]
+        error_msg = f"Rate limit exceeded for tweet creation. Limit resets in {wait_minutes} minutes."
+        logger.warning(error_msg)
+        ai_logger.error(error_msg, agent_id, account_id, agent_name)
+        return {"processing": True, "process_minutes": wait_minutes, "resume_from_step": 0, "message": error_msg}
 
     # Acquire semaphore to respect rate limits
     await semaphore.acquire()
