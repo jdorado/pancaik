@@ -12,6 +12,7 @@ from . import (
     scheduler,
     video_generation,
     website_crawler,
+    scheduler_agent,
 )
 from .base import _GLOBAL_TOOLS, tool
 

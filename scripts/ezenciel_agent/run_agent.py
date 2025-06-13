@@ -34,7 +34,7 @@ async def main():
     await init(config)
 
     # run specific task
-    agent_id = "68491af5f6e375d686256555"
+    agent_id = "684b94eab09b2080e7bdd8f0"
 
     # Load agent config from the database
     logger.info(f"Loading agent config for ID: {agent_id}")

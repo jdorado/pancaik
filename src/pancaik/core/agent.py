@@ -449,13 +449,28 @@ class Agent:
             assert isinstance(triggers_pipeline, list), "Pipeline from config.triggers must be a list"
             for trigger in triggers_pipeline:
                 # Only execute scheduler triggers - all others are handled separately
-                if trigger.get("id") != "scheduler":
+                if trigger.get("id") not in ["scheduler", "scheduler_agent"]:
                     logger.info(f"Agent {self.id}: Skipping non-scheduler trigger '{trigger['id']}' in schedule_next_run")
                     continue
 
                 logger.info(f"Agent {self.id}: Starting execution of trigger '{trigger['id']}'")
                 result = await self.run_tool(trigger, **kwargs)
                 logger.info(f"Agent {self.id}: Completed execution of trigger '{trigger['id']}'")
+
+                # If the tool returns a valid next_run, update and exit the loop
+                if isinstance(result, dict) and result.get("next_run"):
+                    now = datetime.now(timezone.utc)
+                    update_data = {
+                        "next_run": result["next_run"],
+                        "status": "scheduled",
+                        "is_active": True,
+                        "updated_at": now,
+                        "retry_count": 0,
+                        "error": None,
+                    }
+                    await AgentHandler.update_agent(self.id, update_data)
+                    break
+                # If the tool signals to exit, break
                 if isinstance(result, dict) and result.get("should_exit", False):
                     logger.info(f"Agent {self.id}: Exiting triggers pipeline early due to should_exit flag from trigger '{trigger['id']}'")
                     break

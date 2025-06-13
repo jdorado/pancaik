@@ -149,7 +149,8 @@ async def sample_tool(
     context = data_store.get("context", {})
 
     # Example: Use AI for processing
-    prompt_data = {"task": f"Process the sample parameter: {sample_param}", "context": context, "agent_name": agent_name}
+    output_format = ("\nOUTPUT IN JSON: Strict JSON format, no additional text.\n'processed_result': 'The processed result of the sample parameter.'\n")
+    prompt_data = {"task": f"Process the sample parameter: {sample_param}", "context": context, "agent_name": agent_name, "output_format": output_format}
 
     prompt = get_prompt(prompt_data)
     model_id = config.get("ai_models", {}).get("default")
@@ -184,76 +185,3 @@ async def sample_tool(
     output_data = {"tool_name": "sample_tool", "processed_data": processed_result, "status": "completed"}
 
     return {"values": {"context": context_updates, "output": output_data}}
-
-
-@tool()
-async def processing_demo_tool(
-    data_store: Dict[str, Any], action: str = "prepare", process_minutes: int = 1  # "prepare" or "check"
-) -> Dict[str, Any]:
-    """
-    Demonstration tool showing how state is preserved across processing mode.
-
-    Use action="prepare" to add context and enter processing mode.
-    Use action="check" to verify the context was preserved.
-
-    Args:
-        data_store: Agent's data store
-        action: Either "prepare" (adds context + enters processing mode) or "check" (verifies context)
-        process_minutes: Minutes to wait in processing mode if action="prepare"
-
-    Returns:
-        Dictionary with results and optional processing flag
-    """
-    agent_id = data_store.get("agent_id")
-    context = data_store.get("context", {})
-
-    if action == "prepare":
-        # Add some context that should be preserved
-        context_updates = {
-            "processing_demo_timestamp": datetime.now(timezone.utc).isoformat(),
-            "processing_demo_data": "This data should survive processing mode",
-            "processing_demo_counter": context.get("processing_demo_counter", 0) + 1,
-        }
-
-        result = {
-            "should_process": True,
-            "process_minutes": process_minutes,
-            "values": {
-                "context": context_updates,
-                "output": {"action": "prepared_for_processing", "context_added": list(context_updates.keys())},
-            },
-        }
-
-        logger.info(f"Agent {agent_id}: Prepared context for processing mode - will process for {process_minutes} minutes")
-
-    elif action == "check":
-        # Check if the context was preserved
-        demo_timestamp = context.get("processing_demo_timestamp")
-        demo_data = context.get("processing_demo_data")
-        demo_counter = context.get("processing_demo_counter", 0)
-
-        preserved = demo_timestamp is not None and demo_data is not None
-
-        result = {
-            "values": {
-                "context": {"processing_demo_verified": preserved, "verification_timestamp": datetime.now(timezone.utc).isoformat()},
-                "output": {
-                    "action": "verified_processing_state",
-                    "context_preserved": preserved,
-                    "demo_timestamp": demo_timestamp,
-                    "demo_data": demo_data,
-                    "demo_counter": demo_counter,
-                    "status": "success" if preserved else "failed",
-                },
-            }
-        }
-
-        if preserved:
-            logger.info(f"Agent {agent_id}: ✅ Context was preserved across processing mode!")
-        else:
-            logger.warning(f"Agent {agent_id}: ❌ Context was NOT preserved across processing mode")
-
-    else:
-        raise ValueError(f"Invalid action '{action}'. Must be 'prepare' or 'check'")
-
-    return result

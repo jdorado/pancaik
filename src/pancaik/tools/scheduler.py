@@ -83,19 +83,8 @@ async def scheduler(
     # If next_run is provided, use it directly
     if next_run is not None:
         calculated_next_run = convert_to_datetime(next_run, "next_run")
-        # Update the agent with the provided next_run time
-        success = await AgentHandler.update_agent(
-            agent_id,
-            {
-                "next_run": calculated_next_run,
-                "status": "scheduled",
-                "is_active": True,
-                "updated_at": now,
-                "retry_count": 0,
-                "error": None,
-            },
-        )
-        return {"success": success, "next_run": calculated_next_run}
+        # Do not update the agent here; just return the value
+        return {"success": True, "next_run": calculated_next_run}
 
     # Convert last_run to datetime if provided
     last_run_dt = convert_to_datetime(last_run, "last_run") if last_run is not None else None
@@ -105,17 +94,8 @@ async def scheduler(
 
         # If this is a one-time schedule and it has already run, deactivate it
         if last_run_dt is not None:
-            update_data = {
-                "next_run": None,
-                "status": None,
-                "is_active": False,
-                "updated_at": now,
-                "retry_count": 0,
-                "error": None,
-            }
-
-            success = await AgentHandler.update_agent(agent_id, update_data)
-            return {"success": success, "next_run": None}
+            # Do not update the agent here; just return the value
+            return {"success": True, "next_run": None}
 
         # If it hasn't run yet, schedule it
         calculated_next_run = convert_to_datetime(scheduler_params["timestamp"], "timestamp")
@@ -188,20 +168,7 @@ async def scheduler(
     if calculated_next_run is not None:
         assert calculated_next_run.tzinfo is not None, "next_run must be timezone-aware"
         assert calculated_next_run >= now, "next_run must be in the future"
-
-        update_data = {
-            "next_run": calculated_next_run,
-            "status": "scheduled",
-            "is_active": True,
-            "updated_at": now,
-            "retry_count": 0,
-            "error": None,
-        }
-
-        # Update the agent's next_run time in the database
-        logger.info(f"Updating agent {agent_id} with next_run {calculated_next_run}")
-        success = await AgentHandler.update_agent(agent_id, update_data)
+        # Do not update the agent here; just return the value
+        return {"success": True, "next_run": calculated_next_run}
     else:
-        success = True  # For one-time tasks that were deactivated
-
-    return {"success": success, "next_run": calculated_next_run}
+        return {"success": True, "next_run": None}

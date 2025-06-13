@@ -12,6 +12,7 @@
 - If the data store is missing, add it to the tools first.
 - AI logging should focus on the AI elements and the tool's flow—log what the tool is doing, not system-level or unrelated errors. Only log exceptions if they are directly related to the tool's purpose or flow.
 - Standard logger.info/error should be used for system-level logging
+- **Do NOT log long strings or large data (such as prompts, full documents, or large payloads). Instead, log only keys, names, IDs, or summaries. Logging large content makes logs unwieldy and less useful.**
 
 Example:
 ```python

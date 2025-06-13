@@ -89,7 +89,7 @@ class AIRouter:
         Provider.OPENROUTER: "https://openrouter.ai/api/v1",
     }
 
-    def __init__(self, default_provider: Provider = Provider.OPENAI, use_openrouter: bool = False, max_concurrent_requests: int = 100):
+    def __init__(self, default_provider: Provider = Provider.OPENROUTER, use_openrouter: bool = False, max_concurrent_requests: int = 100):
         """Initialize the AI router with configuration settings.
 
         Args:
