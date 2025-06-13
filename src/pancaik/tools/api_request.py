@@ -7,15 +7,12 @@ custom processing of responses.
 """
 
 import json
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 import aiohttp
 from pydantic import BaseModel, HttpUrl, validator
 
 from ..core.ai_logger import ai_logger
-from ..utils.ai_router import get_completion
-from ..utils.json_parser import extract_json_content
-from ..utils.prompt_utils import get_prompt
 from .base import tool
 
 

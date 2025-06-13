@@ -15,7 +15,7 @@ This module provides a template for creating new tools using the @tool decorator
 # ONLY return 'values' when you have meaningful data to add:
 # - 'context': Only include if you have new/updated context data to store
 # - 'output': Only include if you have meaningful output data to return
-# 
+#
 # Clean return patterns:
 # 1. Success with data: {"values": {"context": {...}, "output": {...}}}
 # 2. Success with only context: {"values": {"context": {...}}}
@@ -27,9 +27,9 @@ This module provides a template for creating new tools using the @tool decorator
 #
 # Examples of GOOD returns:
 # return {"values": {"context": {"user_id": "123", "status": "verified"}}}  # Only context
-# return {"values": {"output": {"result": "success", "data": [...]}}}       # Only output  
+# return {"values": {"output": {"result": "success", "data": [...]}}}       # Only output
 # return {"should_exit": True}                                              # Clean exit
-# 
+#
 # Examples of BAD returns (avoid these):
 # return {"values": {"context": {}, "output": {}}}                         # Empty values
 # return {"values": {"context": {"status": "ok"}, "output": {"status": "ok"}}}  # Redundant

@@ -737,8 +737,6 @@ class Agent:
                     self.data_store["outputs"] = processing_state["outputs"]
                     logger.info(f"Agent {self.id}: Restored {len(processing_state['outputs'])} output items")
 
-
-
         # Mark agent as running
         await AgentHandler.update_agent_status(self.id, "running")
 

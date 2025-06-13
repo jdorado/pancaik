@@ -1,10 +1,10 @@
+import importlib.util
 import os
 import sys
-import importlib.util
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 # Add src to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pancaik import init
 
@@ -16,6 +16,7 @@ KEYCHAIN_SECRETS = [
     ("global", "GEMINI_API_KEY", None),
 ]
 
+
 def load_keychain_secrets():
     keychain_path = os.path.join(os.path.dirname(__file__), "ezenciel_agent", "keychain.py")
     if os.path.exists(keychain_path):
@@ -24,6 +25,7 @@ def load_keychain_secrets():
         spec.loader.exec_module(keychain)
         if not keychain.load_secrets(KEYCHAIN_SECRETS):
             raise ValueError("Failed to load some secrets from keychain")
+
 
 async def init_env(config: Optional[Dict[str, Any]] = None):
     """
@@ -37,4 +39,4 @@ async def init_env(config: Optional[Dict[str, Any]] = None):
             "x_api_url": os.getenv("X_API", "http://localhost:6011/api"),
             "firecrawl_api_key": os.getenv("FIRECRAWL_API_KEY", ""),
         }
-    await init(config) 
+    await init(config)

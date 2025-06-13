@@ -4,7 +4,6 @@ Custom webhook tools for agents.
 This module provides tools for sending data to custom HTTP endpoints.
 """
 
-import json
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -54,17 +53,14 @@ async def custom_webhook(webhook_url: str, data_store: Dict[str, Any], instructi
     ai_logger.thinking(f"Preparing to send webhook to {webhook_url}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
 
     # Default webhook configuration
-    webhook_config = {
-        "method": "POST",
-        "headers": {"Content-Type": "application/json"},
-        "payload": outputs,
-        "params": {}
-    }
+    webhook_config = {"method": "POST", "headers": {"Content-Type": "application/json"}, "payload": outputs, "params": {}}
 
     # Parse instructions with LLM if provided
     if instructions and instructions.strip():
-        ai_logger.thinking(f"Parsing webhook configuration instructions with LLM", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
-        
+        ai_logger.thinking(
+            f"Parsing webhook configuration instructions with LLM", agent_id=agent_id, account_id=account_id, agent_name=agent_name
+        )
+
         prompt_data = {
             "task": "Parse webhook configuration instructions and generate webhook request configuration",
             "instructions": instructions,
@@ -101,14 +97,14 @@ If instructions are unclear or empty, use defaults:
 - payload: full outputs object
 - params: {}
 
-IMPORTANT: Return ONLY valid JSON, no explanations."""
+IMPORTANT: Return ONLY valid JSON, no explanations.""",
         }
 
         try:
             prompt = get_prompt(prompt_data)
             model_id = config.get("ai_models", {}).get("default")
             response = await get_completion(prompt=prompt, model_id=model_id)
-            
+
             # Parse AI response
             parsed_config = extract_json_content(response)
             if parsed_config and isinstance(parsed_config, dict):
@@ -121,27 +117,33 @@ IMPORTANT: Return ONLY valid JSON, no explanations."""
                     webhook_config["payload"] = parsed_config["payload"]
                 if "params" in parsed_config and isinstance(parsed_config["params"], dict):
                     webhook_config["params"] = parsed_config["params"]
-                    
-                ai_logger.action(f"Successfully parsed webhook instructions: {webhook_config['method']} with {len(webhook_config['headers'])} headers", 
-                               agent_id=agent_id, account_id=account_id, agent_name=agent_name)
+
+                ai_logger.action(
+                    f"Successfully parsed webhook instructions: {webhook_config['method']} with {len(webhook_config['headers'])} headers",
+                    agent_id=agent_id,
+                    account_id=account_id,
+                    agent_name=agent_name,
+                )
             else:
-                ai_logger.action(f"Could not parse instructions, using defaults", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
-                
+                ai_logger.action(
+                    f"Could not parse instructions, using defaults", agent_id=agent_id, account_id=account_id, agent_name=agent_name
+                )
+
         except Exception as e:
             logger.warning(f"Error parsing webhook instructions with LLM: {e}, using defaults")
-            ai_logger.action(f"Error parsing instructions, using defaults: {str(e)}", agent_id=agent_id, account_id=account_id, agent_name=agent_name)
+            ai_logger.action(
+                f"Error parsing instructions, using defaults: {str(e)}", agent_id=agent_id, account_id=account_id, agent_name=agent_name
+            )
 
     ai_logger.action(
-        f"Sending {webhook_config['method']} webhook request with {len(webhook_config.get('payload', {}))} data fields", 
-        agent_id=agent_id, account_id=account_id, agent_name=agent_name
+        f"Sending {webhook_config['method']} webhook request with {len(webhook_config.get('payload', {}))} data fields",
+        agent_id=agent_id,
+        account_id=account_id,
+        agent_name=agent_name,
     )
 
     # Prepare request parameters
-    request_kwargs = {
-        "url": webhook_url,
-        "headers": webhook_config["headers"],
-        "timeout": timeout
-    }
+    request_kwargs = {"url": webhook_url, "headers": webhook_config["headers"], "timeout": timeout}
 
     # Add query parameters if any
     if webhook_config["params"]:
@@ -159,7 +161,7 @@ IMPORTANT: Return ONLY valid JSON, no explanations."""
     async with aiohttp.ClientSession() as session:
         # Get the appropriate method from session
         method_func = getattr(session, webhook_config["method"].lower())
-        
+
         async with method_func(**request_kwargs) as response:
             status_code = response.status
             content_type = response.headers.get("Content-Type", "")
@@ -182,7 +184,7 @@ IMPORTANT: Return ONLY valid JSON, no explanations."""
                     "payload": webhook_config["payload"],
                     "method": webhook_config["method"],
                     "headers": webhook_config["headers"],
-                    "params": webhook_config["params"]
+                    "params": webhook_config["params"],
                 }
 
                 # Postconditions

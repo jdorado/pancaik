@@ -9,8 +9,8 @@ The agent will gradually expose Pipedrive API functions as callable tools to the
 rather than being an all-encompassing Pipedrive agent.
 """
 
-import json
 import datetime
+import json
 from typing import Any, Dict
 
 from ...core.ai_logger import ai_logger
@@ -23,15 +23,14 @@ from ...utils.prompt_utils import get_prompt
 from .pipedrive_cache import load_and_cache_pipedrive_metadata, simplify_pipedrive_metadata
 from .pipedrive_client import PipedriveClient
 
-OUTPUT_FORMAT = (
-    """OUTPUT IN JSON: Strict JSON format, no additional text.\n{\n"
+OUTPUT_FORMAT = """OUTPUT IN JSON: Strict JSON format, no additional text.\n{\n"
     "    \"success\": boolean,\n"
     "    \"results_found\": boolean,  // true if any matching data was found, false if not\n"
     "    \"data_summary\": \"string summary of data retrieved or why no results\",\n"
     "    \"should_exit\": boolean,  // true if user explicitly requested to stop if no results, else false or omitted\n"
     "    \"pipedrive_data\": \"relevant pipedrive data or null\"\n"
     "}"""
-)
+
 
 @tool()
 async def pipedrive_agent(data_store: Dict[str, Any], pipedrive: str, pipedrive_instructions: str) -> Dict[str, Any]:
@@ -277,7 +276,7 @@ OUTPUT REQUIREMENTS:
 CONNECTION: {pipedrive}
 CONTEXT: {context_json}"""
 
-            model_id = 'anthropic/claude-sonnet-4' # TODO config.get("ai_models", {}).get("default")
+            model_id = "anthropic/claude-sonnet-4"  # TODO config.get("ai_models", {}).get("default")
 
             # Use AI router in agent mode with the tools
             agent_result = await get_completion(
@@ -332,12 +331,24 @@ CONTEXT: {context_json}"""
             if not results_found:
                 should_exit = parsed_result.get("should_exit", False)
                 if should_exit:
-                    ai_logger.result("No matching results found for the Pipedrive request - agent will exit (LLM output should_exit=true)", agent_id, account_id, agent_name)
+                    ai_logger.result(
+                        "No matching results found for the Pipedrive request - agent will exit (LLM output should_exit=true)",
+                        agent_id,
+                        account_id,
+                        agent_name,
+                    )
                     logger.info(f"No results found for Pipedrive request from agent {agent_id} (LLM output should_exit=true)")
                     return {"should_exit": True}
                 else:
-                    ai_logger.warning("No matching results found for the Pipedrive request - pipeline will continue (LLM output should_exit not set)", agent_id, account_id, agent_name)
-                    logger.warning(f"No results found for Pipedrive request from agent {agent_id}, pipeline will continue (LLM output should_exit not set)")
+                    ai_logger.warning(
+                        "No matching results found for the Pipedrive request - pipeline will continue (LLM output should_exit not set)",
+                        agent_id,
+                        account_id,
+                        agent_name,
+                    )
+                    logger.warning(
+                        f"No results found for Pipedrive request from agent {agent_id}, pipeline will continue (LLM output should_exit not set)"
+                    )
                     return None
 
             # Results found - return the data

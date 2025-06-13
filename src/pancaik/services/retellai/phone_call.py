@@ -5,7 +5,6 @@ This module provides tools for making AI-powered phone calls with intelligent vo
 """
 
 import re
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from ...core.ai_logger import ai_logger
@@ -283,7 +282,7 @@ async def get_call_details(
 
     Args:
         voice_connection: Connection ID for RetellAI credentials (must contain api_token/token)
-        call_id: Optional unique identifier of the call to retrieve details for. 
+        call_id: Optional unique identifier of the call to retrieve details for.
                 If not provided, will attempt to retrieve from context (call_registration.call_id)
         data_store: Optional data store for additional context
 
@@ -296,7 +295,7 @@ async def get_call_details(
 
     # Preconditions (Design by Contract)
     assert isinstance(voice_connection, str) and voice_connection, "voice_connection must be a non-empty string"
-    
+
     # If call_id is not provided, try to get it from context
     if not call_id:
         if data_store:
@@ -304,54 +303,51 @@ async def get_call_details(
             outputs = data_store.get("outputs", {})
             if "call_registration" in outputs:
                 call_id = outputs["call_registration"].get("call_id")
-            
+
             # Check in context for call_registration
             if not call_id:
                 context = data_store.get("context", {})
                 if "call_registration" in context:
                     call_id = context["call_registration"].get("call_id")
-            
+
             # Check directly in context for call_id
             if not call_id:
                 call_id = context.get("call_id")
-            
+
             # Check directly in outputs for call_id
             if not call_id:
                 call_id = outputs.get("call_id")
-            
+
             # If still not found, use LLM to extract call_id from context
             if not call_id and (outputs or context):
                 try:
                     config = data_store.get("config", {})
                     model_id = config.get("ai_models", {}).get("default")
-                    
+
                     prompt_data = {
                         "task": "Extract the call_id from the provided context data",
-                        "context_data": {
-                            "outputs": outputs,
-                            "context": context
-                        },
+                        "context_data": {"outputs": outputs, "context": context},
                         "instructions": "Look for any call_id, call identifier, or phone call reference in the provided data. Return ONLY the call_id value as a plain string, no JSON or additional text.",
-                        "output_format": "Return only the call_id string value, nothing else"
+                        "output_format": "Return only the call_id string value, nothing else",
                     }
-                    
+
                     prompt = get_prompt(prompt_data)
                     llm_response = await get_completion(prompt=prompt, model_id=model_id)
-                    
+
                     # Clean the response to extract just the call_id
                     extracted_call_id = llm_response.strip().strip('"').strip("'")
-                    
+
                     # Validate that we got a reasonable call_id format
                     if extracted_call_id and len(extracted_call_id) > 5 and not extracted_call_id.lower().startswith("no"):
                         call_id = extracted_call_id
                         logger.info(f"LLM extracted call_id from context: {call_id}")
-                    
+
                 except Exception as e:
                     logger.warning(f"Failed to extract call_id using LLM: {str(e)}")
-        
+
         if not call_id:
             raise ValueError("call_id must be provided either as parameter or available in data_store (outputs/context sections)")
-    
+
     assert isinstance(call_id, str) and call_id, "call_id must be a non-empty string"
 
     # Extract AI logging context
@@ -382,12 +378,12 @@ async def get_call_details(
     try:
         # Check call status using utility function
         call_status_response = await get_call_status(api_token, call_id)
-        
+
         # Validate response structure
         if not call_status_response or not isinstance(call_status_response, dict):
             logger.error(f"Invalid call status response for {call_id}: {call_status_response}")
             raise ValueError(f"Invalid call status response: expected dict, got {type(call_status_response)}")
-        
+
         call_status = call_status_response.get("call_status", "unknown")
 
         # Extract essential fields for classification and analysis
@@ -407,7 +403,7 @@ async def get_call_details(
         # Log call outcome for classification purposes
         disconnection_reason = call_status_response.get("disconnection_reason")
         duration_ms = call_status_response.get("duration_ms", 0)
-        
+
         # Create outcome summary for classification
         outcome_info = []
         if call_status == "error":
@@ -416,20 +412,20 @@ async def get_call_details(
             outcome_info.append(f"ENDED: {disconnection_reason}")
         else:
             outcome_info.append(f"STATUS: {call_status}")
-        
+
         # Add call analysis insights
         call_analysis = call_status_response.get("call_analysis", {})
         if call_analysis and isinstance(call_analysis, dict):
             call_successful = call_analysis.get("call_successful", False)
             in_voicemail = call_analysis.get("in_voicemail", False)
             user_sentiment = call_analysis.get("user_sentiment", "Unknown")
-            
+
             outcome_info.append(f"Success: {call_successful}")
             if in_voicemail:
                 outcome_info.append("Voicemail: Yes")
             if user_sentiment != "Unknown":
                 outcome_info.append(f"Sentiment: {user_sentiment}")
-        
+
         outcome_summary = " | ".join(outcome_info)
         logger.info(f"Call {call_id} details retrieved ({duration_ms}ms): {outcome_summary}")
 

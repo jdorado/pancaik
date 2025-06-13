@@ -81,14 +81,14 @@ async def email_trigger(agent_id: str, token: str = "", email_data: Dict[str, An
         if email_data:
             # Add metadata for email-injected context
             current_time = datetime.now(timezone.utc)
-            
+
             # Structure the email data for better agent consumption
             structured_email_data = {
                 "email_from": email_data.get("from", ""),
                 "email_subject": email_data.get("subject", ""),
                 "email_body": email_data.get("body", ""),
             }
-            
+
             agent.data_store["context"]["email_received"] = {
                 "value": structured_email_data,
                 "tool_id": "email_trigger",
@@ -120,4 +120,4 @@ async def email_trigger(agent_id: str, token: str = "", email_data: Dict[str, An
         raise
     except Exception as e:
         logger.error(f"Email execution failed for agent {agent_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")

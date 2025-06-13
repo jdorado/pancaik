@@ -5,9 +5,9 @@ This module provides functionality to parse natural language instructions for AP
 and automatically extract the required parameters for the api_request tool.
 """
 
+import json
 from typing import Any, Dict, Optional
 
-import json
 import aiohttp
 from pydantic import BaseModel, HttpUrl, validator
 
@@ -16,6 +16,7 @@ from ..utils.ai_router import get_completion
 from ..utils.json_parser import extract_json_content
 from ..utils.prompt_utils import get_prompt
 from .base import tool
+
 
 class APIRequestAgentConfig(BaseModel):
     api_url: HttpUrl
@@ -28,6 +29,7 @@ class APIRequestAgentConfig(BaseModel):
         if v.lower() not in ["get", "post"]:
             raise ValueError("HTTP method must be either GET or POST")
         return v.lower()
+
 
 @tool()
 async def api_request_agent(
@@ -64,7 +66,7 @@ async def api_request_agent(
             "http_method": "Optional: HTTP method (GET or POST), defaults to 'get'",
             "request_body": "Optional: JSON string containing request body for POST requests",
             "headers": "Optional: JSON string containing custom headers",
-            "proceed_if_no_results": "Optional: Whether to continue execution if API returns no results (true/false), defaults to true unless user explicitly states to stop"
+            "proceed_if_no_results": "Optional: Whether to continue execution if API returns no results (true/false), defaults to true unless user explicitly states to stop",
         },
         "format_instructions": """
         Return a JSON object with the extracted parameters. Only include parameters that can be determined from the instructions.
@@ -80,7 +82,7 @@ async def api_request_agent(
             "headers": "{\\"Authorization\\": \\\"Bearer token\\"}",
             "proceed_if_no_results": true
         }
-        """
+        """,
     }
 
     prompt = get_prompt(prompt_data)
@@ -96,7 +98,7 @@ async def api_request_agent(
             ai_logger.error(error_msg, agent_id, account_id, agent_name)
             # Check if user explicitly requested to stop if extraction fails
             proceed_if_no_results = False
-            if 'proceed_if_no_results' in api_instructions.lower() and 'false' in api_instructions.lower():
+            if "proceed_if_no_results" in api_instructions.lower() and "false" in api_instructions.lower():
                 proceed_if_no_results = False
             else:
                 proceed_if_no_results = True
@@ -111,7 +113,7 @@ async def api_request_agent(
             ai_logger.error(error_msg, agent_id, account_id, agent_name)
             # Check if user explicitly requested to stop if extraction fails
             proceed_if_no_results = False
-            if 'proceed_if_no_results' in api_instructions.lower() and 'false' in api_instructions.lower():
+            if "proceed_if_no_results" in api_instructions.lower() and "false" in api_instructions.lower():
                 proceed_if_no_results = False
             else:
                 proceed_if_no_results = True
@@ -176,4 +178,4 @@ async def api_request_agent(
     except Exception as e:
         error_msg = f"Error processing API instructions: {str(e)}"
         ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        return {"should_exit": True} 
+        return {"should_exit": True}
