@@ -468,7 +468,7 @@ async def get_user_followings(
 async def advanced_search(
     query: str,
     query_type: str = "Latest",
-    limit: Optional[int] = None,
+    limit: Optional[int] = 20,
     cursor: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -534,15 +534,14 @@ async def advanced_search(
                     # Add all tweets from this page
                     all_tweets.extend(tweets)
 
-                    # Check if we've reached the limit
-                    if limit and len(all_tweets) >= limit:
-                        all_tweets = all_tweets[:limit]
-                        logger.info(f"Reached tweet limit of {limit}")
-                        break
-
                     # Check if there are more pages
                     if not data.get("has_next_page", False):
                         logger.info("No more pages available")
+                        break
+
+                    # Check if we've reached the limit BEFORE making another API call
+                    if limit and len(all_tweets) >= limit:
+                        logger.info(f"Reached tweet limit of {limit}, stopping pagination")
                         break
 
                     current_cursor = data.get("next_cursor", "")

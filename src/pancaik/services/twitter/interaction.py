@@ -58,8 +58,7 @@ async def twitter_select_and_interact(
     logger.info(f"Running twitter_select_and_interact for agent {agent_id} ({agent_name})")
 
     ai_logger.thinking(
-        f"Starting Twitter post selection with criteria: {selection_criteria}. "
-        f"Looking for {', '.join(interaction_types)} opportunities.",
+        f"Starting Twitter post selection",
         agent_id,
         account_id,
         agent_name,
@@ -191,8 +190,7 @@ async def twitter_select_and_interact(
                 top_tweet = max(valid_posts, key=lambda x: float(x.get("match_score", 0)))
                 ai_logger.result(
                     f"Selected post with match score {top_tweet.get('match_score')} "
-                    f"for {top_tweet.get('interaction_type')} interaction. "
-                    f"Rationale: {top_tweet.get('selection_rationale')}",
+                    f"for {top_tweet.get('interaction_type')} interaction. ",
                     agent_id,
                     account_id,
                     agent_name,

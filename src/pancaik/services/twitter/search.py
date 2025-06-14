@@ -107,7 +107,7 @@ async def twitter_search_posts(
         raise ValueError("Database not initialized in config")
 
     ai_logger.thinking(
-        f"Starting Twitter search with query: {search_query}, filtering for engagement metrics: "
+        f"Starting Twitter search, filtering for engagement metrics: "
         f"min_replies={min_replies}, min_likes={min_likes}, min_retweets={min_retweets}",
         agent_id,
         account_id,
