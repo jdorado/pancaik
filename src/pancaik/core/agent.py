@@ -503,11 +503,15 @@ class Agent:
 
         return requirements
 
-    async def activate(self, **kwargs):
+    async def activate(self, reschedule: bool = False, **kwargs):
         """
         Activate the agent by setting up required sub-agents.
         Always deletes and recreates the hierarchy to ensure latest parameters are propagated.
         If activation fails, ensures cleanup of any partially created hierarchy.
+        
+        Args:
+            reschedule: If True, forces rescheduling even if next_run is already set
+            **kwargs: Additional parameters
         """
         # Get all required sub-agents from tool signatures
         step_requirements = await self._get_required_sub_agents()
@@ -531,8 +535,19 @@ class Agent:
                         logger.error(f"Failed to create/activate sub-agent {required_agent} for step {step_id}: {str(e)}")
                         raise  # Re-raise to trigger cleanup
 
-            # Schedule next run after activation
-            await self.schedule_next_run()
+            # Check if agent already has a next_run scheduled
+            current_agent_data = await AgentHandler.get_agent(self.id)
+            current_next_run = current_agent_data.get("next_run") if current_agent_data else None
+            
+            # Schedule next run if there's no next_run already set OR if reschedule is forced
+            if not current_next_run or reschedule:
+                if reschedule and current_next_run:
+                    logger.info(f"Agent {self.id}: Rescheduling next run (triggers changed, was scheduled for {current_next_run})")
+                else:
+                    logger.info(f"Agent {self.id}: Scheduling next run (no run scheduled)")
+                await self.schedule_next_run()
+            else:
+                logger.info(f"Agent {self.id}: Skipping scheduling - already has next_run at {current_next_run}")
 
         except Exception as e:
             # If anything fails during activation, clean up any created agents

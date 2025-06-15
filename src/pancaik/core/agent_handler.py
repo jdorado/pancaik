@@ -121,8 +121,8 @@ class AgentHandler:
             else:
                 logger.warning(f"Failed to delete descendant agent {desc_id}")
 
-        # Deactivate the root agent (but don't delete it)
-        await cls.update_agent_status(agent_id, "completed", {"is_active": False})
+        # Deactivate the root agent (but don't delete it) and clear next_run
+        await cls.update_agent_status(agent_id, "completed", {"is_active": False, "next_run": None})
         affected.append(agent_id)
         logger.info(f"Deactivated root agent {agent_id}")
 

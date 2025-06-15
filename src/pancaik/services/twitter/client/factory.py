@@ -89,6 +89,29 @@ async def get_client(instance_id: str, connection_handler: ConnectionHandler, us
             screen_name=screen_name
         )
 
+    elif connection_id == "twitter_api_manual":
+        # Get all API credentials from connection params (all encrypted)
+        encrypted_api_key = params.get("api_key")
+        encrypted_api_secret = params.get("api_secret")
+        encrypted_access_token = params.get("access_token")
+        encrypted_access_token_secret = params.get("access_token_secret")
+        screen_name = params.get("screen_name")
+
+        # Decrypt all credentials
+        api_key = encryption_util.decrypt(encrypted_api_key) if encrypted_api_key else None
+        api_secret = encryption_util.decrypt(encrypted_api_secret) if encrypted_api_secret else None
+        access_token = encryption_util.decrypt(encrypted_access_token) if encrypted_access_token else None
+        access_token_secret = encryption_util.decrypt(encrypted_access_token_secret) if encrypted_access_token_secret else None
+
+        base_client = ApiTwitterClient(
+            bearer_token=api_key,  # Using api_key as bearer_token
+            consumer_key=api_key,
+            consumer_secret=api_secret,
+            access_token=access_token,
+            access_token_secret=access_token_secret,
+            screen_name=screen_name
+        )
+
     else:
         raise NotImplementedError(f"Twitter connection type not implemented: {connection_id}")
 
@@ -164,6 +187,33 @@ async def test_twitter_api_connection(params: Dict[str, Any]) -> Dict[str, Any]:
         bearer_token=bearer_token,
         consumer_key=consumer_key,
         consumer_secret=consumer_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
+        screen_name=screen_name
+    )
+    return await client.test_connection()
+
+
+@connection_test_handler("twitter_api_manual")
+async def test_twitter_api_manual_connection(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Test handler for Twitter API manual connections."""
+    # Get all API credentials from connection params (all encrypted)
+    encrypted_api_key = params.get("api_key")
+    encrypted_api_secret = params.get("api_secret")
+    encrypted_access_token = params.get("access_token")
+    encrypted_access_token_secret = params.get("access_token_secret")
+    screen_name = params.get("screen_name")
+
+    # Decrypt all credentials
+    api_key = encryption_util.decrypt(encrypted_api_key) if encrypted_api_key else None
+    api_secret = encryption_util.decrypt(encrypted_api_secret) if encrypted_api_secret else None
+    access_token = encryption_util.decrypt(encrypted_access_token) if encrypted_access_token else None
+    access_token_secret = encryption_util.decrypt(encrypted_access_token_secret) if encrypted_access_token_secret else None
+
+    client = ApiTwitterClient(
+        bearer_token=api_key,  # Using api_key as bearer_token
+        consumer_key=api_key,
+        consumer_secret=api_secret,
         access_token=access_token,
         access_token_secret=access_token_secret,
         screen_name=screen_name
