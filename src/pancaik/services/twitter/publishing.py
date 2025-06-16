@@ -105,15 +105,16 @@ async def twitter_publish_post(
         semaphore.release()
 
     if not tweet:
-        error_msg = "Tweet creation returned None"
+        error_msg = "Tweet creation failed"
         logger.error(error_msg)
         ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        return {"status": "error", "message": error_msg, "details": "No response from Twitter API"}
+        raise RuntimeError(error_msg)
 
     if "id" not in tweet:
-        logger.error("Invalid tweet response format")
-        ai_logger.result("Invalid tweet response format", agent_id, account_id, agent_name)
-        return {"status": "error", "message": "Invalid tweet response format"}
+        error_msg = "Invalid tweet response format"
+        logger.error(error_msg)
+        ai_logger.error(error_msg, agent_id, account_id, agent_name)
+        raise ValueError(f"{error_msg}: Missing tweet ID in response")
     tweet_id = tweet["id"]
 
     # Index the tweet

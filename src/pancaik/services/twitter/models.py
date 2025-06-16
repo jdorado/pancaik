@@ -9,6 +9,49 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, List
 
 
+# Global field mappings to standardize data across different Twitter API sources
+PROFILE_FIELD_MAPPINGS = {
+    # TwitterAPI key -> Standard key (based on official Twitter API v2)
+    "userName": "username",
+    "screenName": "name",  # TwitterAPI uses screenName, official API uses name
+    "screen_name": "username",  # v1.1 API compatibility
+    "description": "bio", 
+    "isVerified": "verified",
+    "createdAt": "created_at",
+    "followers_count": "followersCount",
+    "following_count": "followingCount", 
+    "friends_count": "followingCount",  # v1.1 API uses friends_count for following
+    "favourites_count": "favoritesCount",
+    "statuses_count": "statusesCount",
+    "media_tweets_count": "mediaTweetsCount",
+    "profile_image_url_https": "profileImageUrl",
+    "profile_banner_url": "profileBannerUrl",
+    "can_dm": "canDm",
+    # Keep fields that are already standardized
+    "id": "id",
+    "name": "name", 
+    "username": "username",
+    "location": "location",
+    "url": "url",
+    "email": "email",
+    "protected": "protected",
+    "verified": "verified",
+    "created_at": "created_at",
+}
+
+TWEET_FIELD_MAPPINGS = {
+    # TwitterAPI key -> Standard key (minimal mapping for compatibility)
+    "author_id": "author_id",
+    "edit_history_tweet_ids": "edit_history_tweet_ids",
+}
+
+MENTION_FIELD_MAPPINGS = {
+    # TwitterAPI key -> Standard key
+    "id_str": "id",
+    "screen_name": "username",
+}
+
+
 def normalize_mentions(mentions: List[Dict]) -> List[Dict]:
     """Normalize mentions to consistent format used by Connection API."""
     if not mentions:
@@ -16,26 +59,22 @@ def normalize_mentions(mentions: List[Dict]) -> List[Dict]:
     
     normalized = []
     for mention in mentions:
-        # Convert TwitterAPI format to Connection format
+        # Convert TwitterAPI format to Connection format using global mappings
         normalized_mention = {}
         
-        # Handle id field - TwitterAPI uses 'id_str', Connection uses 'id'
-        if 'id_str' in mention:
-            normalized_mention['id'] = mention['id_str']
-        elif 'id' in mention:
-            normalized_mention['id'] = str(mention['id'])
-        
-        # Handle username field - TwitterAPI uses 'screen_name', Connection uses 'username'
-        if 'screen_name' in mention:
-            normalized_mention['username'] = mention['screen_name']
-        elif 'username' in mention:
-            normalized_mention['username'] = mention['username']
-        
-        # Handle name field - both use 'name' but Connection2 might not always have it
-        if 'name' in mention:
-            normalized_mention['name'] = mention['name']
-        
-        # Skip 'indices' field as Connection format doesn't include it
+        # Apply global mention field mappings
+        for key, value in mention.items():
+            if key == 'indices':
+                continue  # Skip 'indices' field as Connection format doesn't include it
+            
+            # Use global mention mapping if available, otherwise use original key
+            mapped_key = MENTION_FIELD_MAPPINGS.get(key, key)
+            
+            # Special handling for id field to ensure it's a string
+            if mapped_key == 'id':
+                normalized_mention[mapped_key] = str(value)
+            else:
+                normalized_mention[mapped_key] = value
         
         normalized.append(normalized_mention)
     
@@ -115,14 +154,8 @@ def format_tweet(tweet: Dict, user_id: Optional[str] = None, username: Optional[
         "created_at": created_at,
     }
 
-    # Map TwitterAPI keys to Connection2 format for consistency
-    # Connection2 has minimal structure, so focus on core compatibility
-    key_mapping = {
-        # TwitterAPI key -> Connection2 key (minimal mapping for compatibility)
-        "author_id": "author_id",  # Keep Connection2's author_id field
-        "edit_history_tweet_ids": "edit_history_tweet_ids",  # Keep Connection2's field
-        # Remove the extensive mappings since Connection2 has minimal structure
-    }
+    # Use global tweet field mappings for consistency
+    key_mapping = TWEET_FIELD_MAPPINGS
 
     # Add all remaining keys from the original tweet, applying minimal mappings
     mapped_keys = {"id", "text", "created_at", "timeParsed", "createdAt", "entities", 
@@ -139,27 +172,33 @@ def format_tweet(tweet: Dict, user_id: Optional[str] = None, username: Optional[
 
 
 def format_profile(profile: Dict) -> Dict:
-    """Format raw profile data into Connection2 consistent structure."""
+    """Format raw profile data into consistent structure."""
     if not profile:
         return profile
     
-    # Map TwitterAPI profile keys to Connection2 format
-    profile_mapping = {
-        # TwitterAPI key -> Connection2 key
-        "userName": "username",
-        "screenName": "name",  # Connection2 uses 'name' not 'screenName'
-        "bio": "description",  # Connection2 uses 'description' not 'bio'
-        "isVerified": "verified",  # Connection2 uses 'verified' not 'isVerified'
-        "createdAt": "created_at",
-        # Keep followers/following as simple counts, but Connection2 might have them in public_metrics
-    }
-    
-    # Create new profile with mapped keys
+    # Create new profile with mapped keys using global mappings
     result = {}
     
     for key, value in profile.items():
-        # Use mapped key if available, otherwise use original key
-        mapped_key = profile_mapping.get(key, key)
+        # Use global profile mapping if available, otherwise use original key
+        mapped_key = PROFILE_FIELD_MAPPINGS.get(key, key)
+        result[mapped_key] = value
+    
+    return result
+
+
+def format_following(following: Dict) -> Dict:
+    """Format raw following user data into consistent structure."""
+    if not following:
+        return following
+    
+    # Create new following with mapped keys using global profile mappings
+    # Following users have the same structure as profiles
+    result = {}
+    
+    for key, value in following.items():
+        # Use global profile mapping if available, otherwise use original key
+        mapped_key = PROFILE_FIELD_MAPPINGS.get(key, key)
         result[mapped_key] = value
     
     return result

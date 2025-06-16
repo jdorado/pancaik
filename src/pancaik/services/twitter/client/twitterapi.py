@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 
 from pancaik.core.config import logger, get_config
-from pancaik.services.twitter.models import format_tweet, format_profile
+from pancaik.services.twitter.models import format_tweet, format_profile, format_following
 
 
 async def _make_twitter_api_request(
@@ -375,7 +375,8 @@ async def get_user_info(user_name: str) -> Dict[str, Any]:
 async def get_user_followings(
     user_name: str,
     limit: Optional[int] = None,
-    cursor: Optional[str] = None
+    cursor: Optional[str] = None,
+    pages_limit: int = 1
 ) -> Dict[str, Any]:
     """
     Retrieve user followings with pagination support.
@@ -385,6 +386,7 @@ async def get_user_followings(
         user_name: Screen name of the user
         limit: Maximum number of followings to retrieve (optional)
         cursor: Cursor for pagination (optional)
+        pages_limit: Maximum number of pages to retrieve (default: 1)
 
     Returns:
         Dictionary containing:
@@ -404,7 +406,7 @@ async def get_user_followings(
     all_followings = []
     current_cursor = cursor or ""
     page_count = 0
-    max_pages = 100  # Safety limit to prevent infinite loops
+    max_pages = min(pages_limit, 100)  # Use pages_limit but cap at 100 for safety
 
     async with aiohttp.ClientSession() as session:
         while page_count < max_pages:
@@ -417,8 +419,7 @@ async def get_user_followings(
                 data = await _make_twitter_api_request(base_url, params, session)
 
                 # Handle nested data structure - followings are inside data
-                data_content = data.get("data", {})
-                followings = data_content.get("followings", [])
+                followings = data.get("followings", [])
 
                 if not followings:
                     logger.info("No more followings found")
@@ -457,11 +458,22 @@ async def get_user_followings(
 
     logger.info(f"Total followings retrieved: {len(all_followings)}")
     
+    # Format all followings using the format_following function
+    formatted_followings = []
+    for following in all_followings:
+        try:
+            formatted_following = format_following(following)
+            formatted_followings.append(formatted_following)
+        except Exception as e:
+            logger.warning(f"Failed to format following {following.get('id', 'unknown')}: {e}")
+            # Include the original following if formatting fails
+            formatted_followings.append(following)
+    
     return {
-        "followings": all_followings,
+        "followings": formatted_followings,
         "next_cursor": current_cursor if page_count < max_pages else None,
         "has_next_page": bool(current_cursor) and page_count < max_pages,
-        "total_count": len(all_followings)
+        "total_count": len(formatted_followings)
     }
 
 

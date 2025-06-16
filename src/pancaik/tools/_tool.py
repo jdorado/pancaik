@@ -35,18 +35,28 @@ This module provides a template for creating new tools using the @tool decorator
 # return {"values": {"context": {"status": "ok"}, "output": {"status": "ok"}}}  # Redundant
 # return {"should_exit": True, "values": {"context": {}}}                  # Unnecessary empty values
 
-## Error Handling:
-# - For hard failures that should stop execution: raise Exception("error message")
-# - For graceful exits (user config issues, etc.): return {"should_exit": True}
-# - When using should_exit: True, no need to return values - just {"should_exit": True} is enough
-
-## Error Handling Pattern:
-# Two options for handling errors in tools:
-# 1. HARD FAILURE (must fail): Raise an exception - the @tool decorator will handle it
-# 2. GRACEFUL EXIT: Return {"should_exit": True}
-#    - Use this when the error is expected/recoverable and you want to end the pipeline gracefully
-#    - Only add values if you have meaningful error context to preserve
-#    - Don't return complex error objects or empty data just to fill the structure
+## Tool Return Patterns:
+# 1. PROCESSING MODE: Resume execution in X minutes
+#    - return {"should_process": True, "process_minutes": X, "values": {...}}
+#    - Use when operation needs time to complete (async API calls, waiting for external systems)
+#    - Agent will save state and resume from this step after specified minutes
+#
+# 2. GRACEFUL EXIT: End pipeline gracefully
+#    - return {"should_exit": True}
+#    - Use for expected/recoverable conditions that should end execution cleanly
+#    - Examples: user config issues, missing permissions, business logic conditions
+#    - ONLY return {"should_exit": True} - no additional values needed
+#
+# 3. NORMAL COMPLETION: Continue to next step
+#    - return {"values": {"context": {...}, "output": {...}}}
+#    - Use when tool completes successfully with data to pass forward
+#    - Only include context/output if you have meaningful data
+#
+# 4. HARD FAILURE: Critical error that must be handled elsewhere
+#    - raise Exception("error message")
+#    - Use for unexpected errors, system failures, invalid states
+#    - The @tool decorator will catch and handle the exception
+#    - Examples: API failures, missing required data, invalid responses
 
 ## Processing Mode Feature Usage:
 
