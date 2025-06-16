@@ -88,6 +88,33 @@ def parse_us_phone_number(phone_number: str) -> str:
     return normalized
 
 
+def validate_flat_variables(variables: Dict[str, Any]) -> None:
+    """
+    Validate that all variables are flat (no nested objects or arrays).
+    
+    RetellAI API requires dynamic variables to be flat JSON with only
+    string, number, or boolean values.
+    
+    Args:
+        variables: Dictionary of dynamic variables to validate
+        
+    Raises:
+        ValueError: If any variable contains nested objects or arrays
+    """
+    for key, value in variables.items():
+        if isinstance(value, (dict, list)):
+            raise ValueError(
+                f"Dynamic variable '{key}' contains nested data (type: {type(value).__name__}). "
+                f"RetellAI API requires flat JSON structure with only string, number, or boolean values. "
+                f"Value: {value}"
+            )
+        elif not isinstance(value, (str, int, float, bool, type(None))):
+            raise ValueError(
+                f"Dynamic variable '{key}' has unsupported type: {type(value).__name__}. "
+                f"Only string, number, boolean, or null values are allowed. Value: {value}"
+            )
+
+
 @tool()
 async def phone_call(
     voice_connection: str,
@@ -150,6 +177,7 @@ async def phone_call(
         "context": data_store.get("context", {}) if data_store else {},
         "output_format": "OUTPUT IN JSON: Strict JSON format, no additional text",
         "evaluation_required": "Include a boolean 'sufficient_context' field indicating whether the provided context contains enough information to correctly proceed with the call based on the call instructions",
+        "dynamic_variables_requirement": "All dynamic variables (except 'to_number' and 'sufficient_context') must be flat key-value pairs with string, number, or boolean values only. NO nested objects or arrays are allowed as these will be passed to RetellAI API which requires flat JSON structure.",
     }
 
     prompt = get_prompt(prompt_data)
@@ -199,6 +227,16 @@ async def phone_call(
     # Prepare dynamic variables by excluding specific keys
     excluded_keys = {"to_number", "sufficient_context"}
     retell_llm_dynamic_variables = {key: value for key, value in parsed_response.items() if key not in excluded_keys}
+
+    # Validate dynamic variables are flat (RetellAI API requirement)
+    try:
+        validate_flat_variables(retell_llm_dynamic_variables)
+        logger.info(f"Dynamic variables validated as flat: {list(retell_llm_dynamic_variables.keys())}")
+    except ValueError as e:
+        error_msg = f"Dynamic variables validation failed: {str(e)}"
+        logger.error(error_msg)
+        ai_logger.error(error_msg, agent_id, account_id, agent_name)
+        raise ValueError(error_msg)
 
     # Prepare metadata and dynamic variables
     metadata = {
