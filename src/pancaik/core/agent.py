@@ -435,6 +435,14 @@ class Agent:
         Returns:
             Result of the trigger processing (data_store)
         """
+        # Check if agent is active before scheduling
+        current_agent_data = await AgentHandler.get_agent(self.id)
+        is_active = current_agent_data.get("is_active", False) if current_agent_data else False
+        
+        if not is_active:
+            logger.info(f"Agent {self.id}: Skipping schedule_next_run - agent is not active")
+            return self.data_store
+
         # Initialize/update data store
         self.data_store["config"] = self.config
         self.data_store["agent_id"] = self.id
@@ -468,6 +476,7 @@ class Agent:
                         "error": None,
                     }
                     await AgentHandler.update_agent(self.id, update_data)
+                    logger.info(f"Agent {self.id}: Scheduled next run for {result['next_run']}")
                     break
                 # If the tool signals to exit, break
                 if isinstance(result, dict) and result.get("should_exit", False):

@@ -31,12 +31,15 @@ async def scheduler_agent(
 
     # Compose a structured prompt for the LLM
     prompt_data = {
-        "instructions": schedule_instructions,
-        "current_utc_time": now_utc.isoformat(),
-        "output_format": (
-            'OUTPUT IN STRICT JSON: {"next_run": "<ISO8601 datetime in UTC>", "reason": "<short explanation of why this matches the pattern>"}.'
-            ' If the instructions are ambiguous or invalid, return {"error": "Could not determine next run datetime", "reason": "<short explanation of why parsing failed or was ambiguous>"}.'
-        ),
+        "current_time": f"Current UTC time: {now_utc.isoformat()} ({now_utc.strftime('%A, %B %d, %Y at %H:%M UTC')})",
+        "task": "Calculate the NEXT future run time for this schedule",
+        "schedule": schedule_instructions,
+        "rules": [
+            "The next run MUST be after the current time above",
+            "If today's time already passed, use tomorrow or the next valid day",
+            "Return datetime in UTC ISO format"
+        ],
+        "output": 'JSON format: {"next_run": "2024-01-15T10:00:00Z", "reason": "brief explanation"} OR {"error": "reason if cannot parse"}'
     }
     prompt = get_prompt(prompt_data)
     model_id = config.get("ai_models", {}).get("default")
