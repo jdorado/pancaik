@@ -797,13 +797,12 @@ class Agent:
             )
 
             # Schedule next run (unless this is a manual run)
-            if not no_retry:
-                await self.schedule_next_run(last_run=current_time)
+            await self.schedule_next_run(last_run=current_time)
 
-                # Send resolution alert after scheduling
-                await send_alert(
-                    event=f"{self.id}: ({self.config.get('name')}) completed successfully", dedup_key=self.id, is_resolve=True, severity="info"
-                )
+            # Send resolution alert after scheduling
+            await send_alert(
+                event=f"{self.id}: ({self.config.get('name')}) completed successfully", dedup_key=self.id, is_resolve=True, severity="info"
+            )
 
             return result
         except Exception as e:

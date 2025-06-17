@@ -266,8 +266,10 @@ class ApiTwitterClient(TwitterClient):
             response = await self.client.create_tweet(**tweet_params)
 
             if response.errors:
-                logger.error(f"Tweet creation error for user '{self.get_username()}': {response.errors}")
-                return None
+                error_message = f"Tweet creation error for user '{self.get_username()}': {response.errors}"
+                logger.error(error_message)
+                # Propagate TweepyException with error details
+                raise TweepyException(str(response.errors))
 
             if response.data:
                 url = f'https://x.com/{self.get_username()}/status/{response.data["id"]}'
@@ -276,7 +278,12 @@ class ApiTwitterClient(TwitterClient):
                     "id": response.data["id"],
                     "text": response.data["text"],
                 }
-            return None
+
+            # If there's no data and no errors, it's an unexpected state
+            error_msg = f"Tweet creation failed for user '{self.get_username()}': No data in response."
+            logger.error(error_msg)
+            raise TweepyException(error_msg)
+
         except TweepyException as e:
             if "duplicate" in str(e):
                 logger.warning(f"Duplicate tweet error for user '{self.get_username()}'.")
@@ -287,7 +294,7 @@ class ApiTwitterClient(TwitterClient):
                 logger.warning(f"Cannot reply to deleted/invisible tweet for user '{self.get_username()}': {e}")
             else:
                 logger.error(f"Failed to create tweet for user '{self.get_username()}': {e}")
-            return None
+            raise e
 
     async def create_thread(self, texts: List[str], image_urls: Union[str, List[str]] = None) -> Optional[str]:
         """Create a thread of tweets.

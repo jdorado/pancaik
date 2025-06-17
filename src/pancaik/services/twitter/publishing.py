@@ -6,6 +6,7 @@ This module provides tools for composing and publishing tweets.
 
 from typing import Any, Dict, Optional
 from datetime import datetime
+from tweepy.errors import TweepyException
 
 from ...core.ai_logger import ai_logger
 from ...core.config import get_config, logger
@@ -98,17 +99,22 @@ async def twitter_publish_post(
     await semaphore.acquire()
     try:
         tweet = await twitter.create_tweet(**tweet_params)
-    except Exception as e:
-        raise e
+    except TweepyException as e:
+        error_msg = f"Tweet creation failed: {e}"
+        logger.error(error_msg)
+        ai_logger.error(error_msg, agent_id, account_id, agent_name)
+        
+        if "TooManyRequests" in str(e):
+            wait_minutes = 15  # Default wait time
+            rate_limit_error_msg = f"Rate limit exceeded for tweet creation. Retrying in {wait_minutes} minutes."
+            logger.warning(rate_limit_error_msg)
+            ai_logger.error(rate_limit_error_msg, agent_id, account_id, agent_name)
+            return {"processing": True, "process_minutes": wait_minutes, "resume_from_step": 0, "message": rate_limit_error_msg}
+
+        raise RuntimeError(error_msg)
     finally:
         # Always release the semaphore
         semaphore.release()
-
-    if not tweet:
-        error_msg = "Tweet creation failed"
-        logger.error(error_msg)
-        ai_logger.error(error_msg, agent_id, account_id, agent_name)
-        raise RuntimeError(error_msg)
 
     if "id" not in tweet:
         error_msg = "Invalid tweet response format"
