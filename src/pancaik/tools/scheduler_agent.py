@@ -42,7 +42,7 @@ async def scheduler_agent(
         "output": 'JSON format: {"next_run": "2024-01-15T10:00:00Z", "reason": "brief explanation"} OR {"error": "reason if cannot parse"}'
     }
     prompt = get_prompt(prompt_data)
-    model_id = config.get("ai_models", {}).get("default")
+    model_id = config.get("ai_models", {}).get("analyzing")
     response = await get_completion(
         prompt=prompt,
         model_id=model_id,
