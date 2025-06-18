@@ -529,7 +529,7 @@ class Agent:
         try:
             if step_requirements:
                 # First delete any existing hierarchy to ensure clean state
-                deleted = await AgentHandler.deactivate_agent_hierarchy(self.id)
+                deleted = await AgentHandler.deactivate_agent_hierarchy(self.id, include_self=False)
                 if deleted:
                     logger.info(f"Cleaned up {len(deleted)-1} existing sub-agents for agent {self.id}")
 
@@ -563,8 +563,8 @@ class Agent:
             if created_agents:
                 logger.warning(f"Activation failed, cleaning up {len(created_agents)} created sub-agents")
                 try:
-                    # Deactivate the entire hierarchy to ensure complete cleanup
-                    await self.deactivate()
+                    # Clean up only the created sub-agents, don't deactivate self
+                    await AgentHandler.deactivate_agent_hierarchy(self.id, include_self=False)
                 except Exception as cleanup_error:
                     logger.error(f"Error during cleanup after failed activation: {str(cleanup_error)}")
                     # Don't raise cleanup error, we want to raise the original error

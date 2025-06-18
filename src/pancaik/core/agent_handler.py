@@ -98,16 +98,17 @@ class AgentHandler:
         return result.deleted_count > 0
 
     @classmethod
-    async def deactivate_agent_hierarchy(cls, agent_id: str) -> List[str]:
+    async def deactivate_agent_hierarchy(cls, agent_id: str, include_self: bool = True) -> List[str]:
         """
         Deactivate an agent and delete all its descendants.
         The root agent is deactivated but preserved, while all descendants are deleted.
 
         Args:
             agent_id: The root agent ID to start from
+            include_self: Whether to deactivate the root agent itself
 
         Returns:
-            List of affected agent IDs (deleted descendants + deactivated root)
+            List of affected agent IDs (deleted descendants + deactivated root if include_self=True)
         """
         # First get all descendants
         descendants = await cls.get_agent_descendants(agent_id)
@@ -121,10 +122,11 @@ class AgentHandler:
             else:
                 logger.warning(f"Failed to delete descendant agent {desc_id}")
 
-        # Deactivate the root agent (but don't delete it) and clear next_run
-        await cls.update_agent_status(agent_id, "completed", {"is_active": False, "next_run": None})
-        affected.append(agent_id)
-        logger.info(f"Deactivated root agent {agent_id}")
+        # Deactivate the root agent only if include_self is True
+        if include_self:
+            await cls.update_agent_status(agent_id, "completed", {"is_active": False, "next_run": None})
+            affected.append(agent_id)
+            logger.info(f"Deactivated root agent {agent_id}")
 
         return affected
 
