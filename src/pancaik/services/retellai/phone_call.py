@@ -363,10 +363,10 @@ async def get_call_details(
                     model_id = config.get("ai_models", {}).get("default")
 
                     prompt_data = {
-                        "task": "Extract the call_id from the provided context data",
+                        "task": "Extract the most recent call_id from the provided context data",
                         "context_data": {"outputs": outputs, "context": context},
-                        "instructions": "Look for any call_id, call identifier, or phone call reference in the provided data. Return ONLY the call_id value as a plain string, no JSON or additional text.",
-                        "output_format": "Return only the call_id string value, nothing else",
+                        "instructions": "The context might contain details of multiple phone calls, including a 'call_id' and 'start_timestamp' for each. Your task is to find the call with the latest 'start_timestamp' and return its 'call_id'. If there's only one call, return its 'call_id'. If timestamps are not available, return the last 'call_id' found in the context. Return ONLY the single most recent call_id.",
+                        "output_format": "Return only the single most recent call_id as a plain string, nothing else.",
                     }
 
                     prompt = get_prompt(prompt_data)

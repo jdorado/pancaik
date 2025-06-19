@@ -28,18 +28,19 @@ async def scheduler_agent(
     ai_logger.thinking("Interpreting schedule instructions", agent_id, account_id, agent_name)
     logger.info(f"[scheduler_agent] Interpreting schedule for agent {agent_id}")
     now_utc = datetime.now(timezone.utc)
-
+    
     # Compose a structured prompt for the LLM
     prompt_data = {
-        "current_time": f"Current UTC time: {now_utc.isoformat()} ({now_utc.strftime('%A, %B %d, %Y at %H:%M UTC')})",
-        "task": "Calculate the NEXT future run time for this schedule",
+        "task": "Find the closest future time from now that satisfies all scheduling conditions",
         "schedule": schedule_instructions,
-        "rules": [
-            "The next run MUST be after the current time above",
-            "If today's time already passed, use tomorrow or the next valid day",
-            "Return datetime in UTC ISO format"
+        "current_time": f"Current UTC time: {now_utc.isoformat()} ({now_utc.strftime('%A, %B %d, %Y at %H:%M UTC')})",
+        "instructions": [
+            "Parse the schedule conditions (frequency, time windows, day restrictions, timezone)",
+            "Find the very next moment from now that satisfies ALL conditions",
+            "Don't skip to tomorrow if today is still valid",
+            "Convert final result to UTC"
         ],
-        "output": 'JSON format: {"next_run": "2024-01-15T10:00:00Z", "reason": "brief explanation"} OR {"error": "reason if cannot parse"}'
+        "output": 'JSON: {"next_run": "YYYY-MM-DDTHH:MM:SSZ", "reason": "brief explanation"} OR {"error": "reason"}'
     }
     prompt = get_prompt(prompt_data)
     model_id = config.get("ai_models", {}).get("analyzing")

@@ -37,11 +37,11 @@ class Agent:
         # Load configuration and ensure datetime values are UTC-aware
         config["account_id"] = config.get("account_id", config.get("owner_id"))
         config["ai_models"] = {
-            "default": "google/gemini-2.5-flash-preview-05-20",
+            "default": "google/gemini-2.5-flash",
+            "analyzing": "google/gemini-2.5-pro",
             "composing": "anthropic/claude-3.5-haiku",
             "research": "perplexity/llama-3.1-sonar-large-128k-online",
             "research-mini": "x-ai/grok-3-mini-beta",
-            "analyzing": "google/gemini-2.5-pro-preview",
         }
         self.config = self._ensure_utc_datetimes(config.copy())
 
