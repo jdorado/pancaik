@@ -43,5 +43,7 @@ async def init_env(config: Optional[Dict[str, Any]] = None):
             "twitter_consumer_secret": "w2LrT4n2bqpQu4hYCRctggrH7hFfkVkpWU2hhNFAML95IBeIpQ",
             "twitter_bearer_token": "AAAAAAAAAAAAAAAAAAAAAATI2QEAAAAALTdiUe%2FF35XAtLHfT3327i8YfTc%3DkKmF0X9NCSKz9LuECvj6NLCu0IsX5UozvpvorweiUNNzaoZp9h",
             "twitter_api_key": "dc7b18913ea64203b5e272266ef1fcf8",
+            "hubspot_client_id": "db77fcec-a655-4497-b6e3-4c786236a697",
+            "hubspot_client_secret": "b9126152-3410-47a3-bb79-b2e5a9370235",
         }
     await init(config)

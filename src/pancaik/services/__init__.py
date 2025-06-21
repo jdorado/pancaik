@@ -13,7 +13,7 @@ Each service typically contains:
 """
 
 # Import all service subpackages to register their tools
-from . import pipedrive, retellai, twitter
+from . import hubspot, pipedrive, retellai, twitter
 
 # Export all available services
-__all__ = ["twitter", "retellai", "pipedrive"]
+__all__ = ["twitter", "retellai", "pipedrive", "hubspot"]
