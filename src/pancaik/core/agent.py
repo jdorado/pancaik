@@ -39,7 +39,7 @@ class Agent:
         config["ai_models"] = {
             "default": "google/gemini-2.5-flash",
             "analyzing": "google/gemini-2.5-pro",
-            "composing": "anthropic/claude-3.5-haiku",
+            "composing": "google/gemini-2.5-flash",
             "research": "perplexity/llama-3.1-sonar-large-128k-online",
             "research-mini": "x-ai/grok-3-mini-beta",
         }

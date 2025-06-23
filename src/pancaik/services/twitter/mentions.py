@@ -5,6 +5,8 @@ This module provides tools for indexing tweets from users and mentions.
 """
 
 import re
+import aiohttp
+import mimetypes
 from datetime import datetime
 from typing import Any, Dict, Tuple
 
@@ -18,6 +20,7 @@ from ...utils.prompt_utils import get_prompt
 from . import client as twitter_client
 from .client import TwitterClient
 from .handlers import TwitterHandler
+from .indexing import twitter_index_mentions
 
 
 async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHandler, depth: int = 10) -> Tuple[str, int, int]:
@@ -128,7 +131,7 @@ async def get_conversation(post: Dict, client: TwitterClient, handler: TwitterHa
     return conversation, count_replies, count_handles(post["text"])
 
 
-@tool(agents=["agent_twitter_index_mentions"])
+@tool()
 async def twitter_select_mentions(
     data_store: Dict[str, Any],
     twitter_connection: str,
@@ -165,6 +168,10 @@ async def twitter_select_mentions(
     # Initialize connection handler with db
     connection_handler = ConnectionHandler(db)
     twitter = await twitter_client.get_client(twitter_connection, connection_handler)
+
+    # Index mentions before selecting
+    ai_logger.action(f"Indexing mentions for @{target_handle} before selecting...", agent_id, account_id, agent_name)
+    await twitter_index_mentions(twitter_connection=twitter_connection, target_handle=target_handle, data_store=data_store)
 
     # Create query to search for mentions excluding retweets
     username = target_handle.replace("@", "").strip()
@@ -247,6 +254,33 @@ async def twitter_select_mentions(
                 "selected_tweet": mention["text"],
                 "tweet_composing_instructions": tweet_composing_instructions,
             }
+
+            # Handle media attachments
+            if "extendedEntities" in mention and "media" in mention["extendedEntities"]:
+                media_context = []
+                async with aiohttp.ClientSession() as session:
+                    for media_item in mention["extendedEntities"]["media"]:
+                        if media_item.get("type") == "photo":
+                            media_url = media_item.get("media_url_https")
+                            if media_url:
+                                try:
+                                    async with session.get(media_url) as resp:
+                                        if resp.status == 200:
+                                            image_bytes = await resp.read()
+                                            mime_type, _ = mimetypes.guess_type(media_url)
+                                            media_context.append(
+                                                {
+                                                    "data": list(image_bytes),
+                                                    "mediaType": mime_type or "image/jpeg",
+                                                }
+                                            )
+                                            ai_logger.action(f"Downloaded media from {media_url}", agent_id, account_id, agent_name)
+                                        else:
+                                            logger.warning(f"Failed to download media from {media_url}, status: {resp.status}")
+                                except Exception as e:
+                                    logger.error(f"Error downloading media from {media_url}: {e}", exc_info=True)
+                if media_context:
+                    context["media_context"] = media_context
 
             outputs = {
                 "selected_tweet": mention,

@@ -168,13 +168,76 @@ async def summarize_all_agents_by_owner():
     print("Total agents:", len(agents))
 
 
+async def inventory_by_owner():
+    """
+    Prints an inventory of agents and their tools, grouped by owner_id.
+    """
+    db = get_config("db")
+    collection = db.agents
+
+    all_agents = []
+    # Find all agents, projecting only necessary fields
+    async for agent in collection.find(
+        {}, {"name": 1, "owner_id": 1, "tools.id": 1, "is_active": 1, "last_run": 1}
+    ):
+        all_agents.append(agent)
+
+    agents_by_owner = defaultdict(list)
+    for agent in all_agents:
+        owner_id = agent.get("owner_id", "Unknown")
+        agents_by_owner[owner_id].append(agent)
+
+    print("\n--- Agent Inventory by Owner ---")
+
+    # Sort owners by owner_id for consistent output
+    sorted_owners = sorted(agents_by_owner.items(), key=lambda item: str(item[0]))
+
+    total_agents_count = 0
+
+    for owner_id, agents in sorted_owners:
+        print(f"\nOwner: {owner_id} ({len(agents)} agents)")
+        print("-" * 40)
+        total_agents_count += len(agents)
+
+        # Sort agents by name
+        for agent in sorted(agents, key=lambda x: x.get("name", "")):
+            agent_name = agent.get("name", "Unnamed Agent")
+            agent_id = agent.get("_id", "N/A")
+            is_active = agent.get("is_active", False)
+            last_run = agent.get("last_run", "Never")
+            if last_run is None:
+                last_run = "Never"
+
+            print(
+                f"  - Agent: {agent_name} (ID: {agent_id}) "
+                f"| Active: {is_active} | Last Run: {last_run}"
+            )
+
+            tools = agent.get("tools", [])
+            if not tools:
+                print("    - No tools configured.")
+            else:
+                tool_names = sorted([
+                    tool.get("id", "Unknown Tool")
+                    for tool in tools
+                    if isinstance(tool, dict)
+                ])
+                print(f"    - Tools: {', '.join(tool_names)}")
+
+    print("\n" + "=" * 60)
+    print(f"Total unique owners: {len(agents_by_owner)}")
+    print(f"Total agents inventoried: {total_agents_count}")
+    print("--- End of Inventory ---")
+
+
 async def main():
     """Main function to run the script."""
     print("=== Pancaik Agent Tool/Owner Summary ===\n")
     try:
         await init_env()
+        await inventory_by_owner()
         # Print all agents summary by owner
-        await summarize_all_agents_by_owner()
+        # await summarize_all_agents_by_owner()
         # (Optional: keep the api_request tool summary below)
         # agents = await find_agents_with_api_request_tool()
         # await print_agent_info(agents)
