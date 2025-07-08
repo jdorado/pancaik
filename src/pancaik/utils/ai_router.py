@@ -73,6 +73,11 @@ class AIRouter:
         "google/": Provider.OPENROUTER,
     }
 
+    # Deprecated model mappings - maps old model IDs to new ones
+    DEPRECATED_MODEL_MAPPINGS = {
+        "perplexity/llama-3.1-sonar-large-128k-online": "perplexity/sonar",
+    }
+
     # Default models per provider
     DEFAULT_MODELS = {
         Provider.OPENAI: "o3-mini",
@@ -150,6 +155,20 @@ class AIRouter:
         if self.use_openrouter and provider != Provider.OPENROUTER:
             return api_keys[Provider.OPENROUTER]
         return api_keys[provider]
+
+    def map_deprecated_model(self, model_id: str) -> str:
+        """Map deprecated model IDs to their latest equivalents.
+
+        Args:
+            model_id: The original model ID
+
+        Returns:
+            The mapped model ID (latest version) or original if no mapping exists
+        """
+        mapped_model = self.DEPRECATED_MODEL_MAPPINGS.get(model_id, model_id)
+        if mapped_model != model_id:
+            logger.info(f"Mapped deprecated model '{model_id}' to '{mapped_model}'")
+        return mapped_model
 
     def get_effective_model_id(self, model_id: str, provider: Provider) -> str:
         """Get the effective model ID to use based on routing preferences.
@@ -252,9 +271,15 @@ class AIRouter:
                     else:
                         # If no API keys available, raise error
                         raise ValueError("No API keys available for any provider")
+                
+                # Map deprecated models to their latest equivalents
+                model = self.map_deprecated_model(model)
             else:
                 # Use the provided model ID or fallback to default
                 model = model_id or self.DEFAULT_MODELS[self.default_provider]
+
+            # Map deprecated models to their latest equivalents
+            model = self.map_deprecated_model(model)
 
             # Auto-detect provider from model ID if not explicitly provided
             detected_provider = provider or self.detect_provider(model)
