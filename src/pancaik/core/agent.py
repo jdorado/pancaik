@@ -40,7 +40,7 @@ class Agent:
             "default": "google/gemini-2.5-flash",
             "analyzing": "google/gemini-2.5-pro",
             "composing": "google/gemini-2.5-flash",
-            "research": "perplexity/llama-3.1-sonar-large-128k-online",
+            "research": "perplexity/sonar",
             "research-mini": "x-ai/grok-3-mini-beta",
         }
         self.config = self._ensure_utc_datetimes(config.copy())
